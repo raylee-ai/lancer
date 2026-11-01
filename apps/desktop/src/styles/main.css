@@ -3308,3 +3308,30 @@ mark.thread-find-active {
   border: 1px solid var(--border-default);
   color: var(--muted-soft);
 }
+
+.provider-preset-dialog {
+  max-height: min(720px, calc(100vh - 48px));
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+
+.provider-preset-dialog__list {
+  display: grid;
+  gap: 8px;
+  min-height: 0;
+  margin: 0;
+  padding: 2px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+}
+
+.provider-preset-dialog__option {
+  display: grid;
+  gap: 5px;
+  width: 100%;
+}
+
+.provider-preset-dialog__option:focus-visible {
+  outline: 2px solid var(--focus-ring-color);
+  outline-offset: 1px;
+}

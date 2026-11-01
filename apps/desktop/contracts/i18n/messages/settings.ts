@@ -124,6 +124,13 @@ export const settingsMessages = defineMessages(
     "settings.customEndpoints.description":
       "Add OpenAI Chat Completions, Responses, or Anthropic Messages endpoints. Stored in ~/.pi/agent/models.json.",
     "settings.customEndpoints.empty": "No custom endpoints yet.",
+    "settings.customEndpoints.templates": "Provider templates",
+    "settings.customEndpoints.templatesDescription":
+      "Start with a provider's public URL and protocol, then add your own key and models.",
+    "settings.customEndpoints.chooseTemplate": "Choose template",
+    "settings.customEndpoints.presetTitle": "Choose a provider template",
+    "settings.customEndpoints.presetSearch": "Search templates",
+    "settings.customEndpoints.presetEmpty": "No matching templates",
     "settings.customEndpoints.entrySummaryOne": "{baseUrl} · {count} model",
     "settings.customEndpoints.entrySummaryOther": "{baseUrl} · {count} models",
     "settings.customEndpoints.edit": "Edit",
@@ -307,6 +314,13 @@ export const settingsMessages = defineMessages(
     "settings.customEndpoints.description":
       "添加 OpenAI Chat Completions、Responses 或 Anthropic Messages 端点。保存在 ~/.pi/agent/models.json 中。",
     "settings.customEndpoints.empty": "暂无自定义端点。",
+    "settings.customEndpoints.templates": "供应商模板",
+    "settings.customEndpoints.templatesDescription":
+      "预填供应商的公开地址和协议，再添加自己的密钥和模型。",
+    "settings.customEndpoints.chooseTemplate": "选择模板",
+    "settings.customEndpoints.presetTitle": "选择供应商模板",
+    "settings.customEndpoints.presetSearch": "搜索模板",
+    "settings.customEndpoints.presetEmpty": "没有匹配的模板",
     "settings.customEndpoints.entrySummaryOne": "{baseUrl} · {count} 个模型",
     "settings.customEndpoints.entrySummaryOther": "{baseUrl} · {count} 个模型",
     "settings.customEndpoints.edit": "编辑",
