@@ -902,18 +902,21 @@ if (!hasSingleInstanceLock) {
 }
 
 app.on("second-instance", () => {
-  const window = windowOwner.foreground();
-  if (!window) {
-    return;
-  }
-  if (window.isMinimized()) {
-    window.restore();
-  }
-  window.show();
-  window.focus();
+  void applicationReady
+    .then(() => {
+      const window = windowOwner.foreground() ?? createAppWindow();
+      if (window.isMinimized()) {
+        window.restore();
+      }
+      window.show();
+      window.focus();
+    })
+    .catch((error: unknown) => {
+      console.error("[main] Could not reopen application window", error);
+    });
 });
 
-app
+const applicationReady = app
   .whenReady()
   .then(async () => {
     if (!hasSingleInstanceLock) {
