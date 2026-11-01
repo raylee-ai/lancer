@@ -122,28 +122,33 @@ export const settingsMessages = defineMessages(
 
     "settings.customEndpoints.title": "Custom endpoints",
     "settings.customEndpoints.description":
-      "Add OpenAI-compatible endpoints (Ollama, vLLM, or your own server). Stored in ~/.pi/agent/models.json.",
+      "Add OpenAI Chat Completions, Responses, or Anthropic Messages endpoints. Stored in ~/.pi/agent/models.json.",
     "settings.customEndpoints.empty": "No custom endpoints yet.",
     "settings.customEndpoints.entrySummaryOne": "{baseUrl} · {count} model",
     "settings.customEndpoints.entrySummaryOther": "{baseUrl} · {count} models",
     "settings.customEndpoints.edit": "Edit",
     "settings.customEndpoints.remove": "Remove",
     "settings.customEndpoints.addEndpoint": "Add endpoint",
-    "settings.customEndpoints.addEndpointDescription":
-      "Register a local or custom OpenAI-compatible server.",
+    "settings.customEndpoints.addEndpointDescription": "Register a local or custom model service.",
     "settings.customEndpoints.bridgeUnavailable": "Desktop bridge is not available.",
     "settings.customEndpoints.baseUrlInvalid": "Base URL must start with http:// or https://",
     "settings.customEndpoints.selectModel": "Select at least one model.",
     "settings.customEndpoints.editTitle": "Edit custom endpoint",
     "settings.customEndpoints.addTitle": "Add custom endpoint",
     "settings.customEndpoints.dialogBody":
-      "Configure an OpenAI-compatible server. The endpoint and API key are stored in plaintext at {path}.",
+      "Configure a model service and its API protocol. The endpoint and API key are stored in plaintext at {path}.",
     "settings.customEndpoints.providerId": "Provider ID",
     "settings.customEndpoints.providerIdHelp":
       "Lowercase letters, digits, and dashes. Cannot be changed later.",
+    "settings.customEndpoints.protocol": "API protocol",
+    "settings.customEndpoints.keepProtocol": "Keep existing protocol (advanced configuration)",
+    "settings.customEndpoints.preserveAdvanced":
+      "Advanced provider fields and model-specific protocol overrides are retained.",
+    "settings.customEndpoints.anthropicBaseUrlHelp":
+      "Use the Anthropic API root. The client appends /v1/messages; do not include that suffix. Model discovery may be unavailable.",
     "settings.customEndpoints.baseUrl": "Base URL",
     "settings.customEndpoints.baseUrlHelp":
-      "Include the {suffix} suffix. Ollama: {ollama}. vLLM: {vllm}.",
+      "Use the API base URL, including any version prefix (often {suffix}); do not append /chat/completions or /responses. Ollama: {ollama}. vLLM: {vllm}.",
     "settings.customEndpoints.apiKey": "API key",
     "settings.customEndpoints.apiKeyPlaceholder": "vLLM: pass through; Ollama: leave blank",
     "settings.customEndpoints.apiKeyHelp":
@@ -152,7 +157,7 @@ export const settingsMessages = defineMessages(
     "settings.customEndpoints.detecting": "Detecting…",
     "settings.customEndpoints.detectModels": "Detect models",
     "settings.customEndpoints.toolCallingHelp":
-      "Tool calling is required. Smaller models (< 7B) often do not emit OpenAI-style function calls cleanly.",
+      "Choose a model with reliable tool calling. Model discovery is optional; enter model IDs manually if the service does not offer a model list.",
     "settings.customEndpoints.cancel": "Cancel",
     "settings.customEndpoints.saveChanges": "Save changes",
     "settings.customEndpoints.checklistEmpty":
@@ -300,26 +305,31 @@ export const settingsMessages = defineMessages(
 
     "settings.customEndpoints.title": "自定义端点",
     "settings.customEndpoints.description":
-      "添加 OpenAI 兼容的端点（Ollama、vLLM 或你自己的服务器）。保存在 ~/.pi/agent/models.json 中。",
+      "添加 OpenAI Chat Completions、Responses 或 Anthropic Messages 端点。保存在 ~/.pi/agent/models.json 中。",
     "settings.customEndpoints.empty": "暂无自定义端点。",
     "settings.customEndpoints.entrySummaryOne": "{baseUrl} · {count} 个模型",
     "settings.customEndpoints.entrySummaryOther": "{baseUrl} · {count} 个模型",
     "settings.customEndpoints.edit": "编辑",
     "settings.customEndpoints.remove": "移除",
     "settings.customEndpoints.addEndpoint": "添加端点",
-    "settings.customEndpoints.addEndpointDescription": "注册本地或自定义的 OpenAI 兼容服务器。",
+    "settings.customEndpoints.addEndpointDescription": "连接本地或自定义的模型服务。",
     "settings.customEndpoints.bridgeUnavailable": "桌面桥接不可用。",
     "settings.customEndpoints.baseUrlInvalid": "Base URL 必须以 http:// 或 https:// 开头",
     "settings.customEndpoints.selectModel": "请至少选择一个模型。",
     "settings.customEndpoints.editTitle": "编辑自定义端点",
     "settings.customEndpoints.addTitle": "添加自定义端点",
     "settings.customEndpoints.dialogBody":
-      "配置一个 OpenAI 兼容的服务器。端点和 API 密钥将以明文形式保存在 {path} 中。",
+      "配置模型服务并选择 API 协议。端点和 API 密钥将以明文形式保存在 {path} 中。",
     "settings.customEndpoints.providerId": "提供商 ID",
     "settings.customEndpoints.providerIdHelp": "仅限小写字母、数字和短横线。创建后无法更改。",
+    "settings.customEndpoints.protocol": "API 协议",
+    "settings.customEndpoints.keepProtocol": "保留现有协议（高级配置）",
+    "settings.customEndpoints.preserveAdvanced": "保留提供商高级字段及每个模型单独设置的协议。",
+    "settings.customEndpoints.anthropicBaseUrlHelp":
+      "填写 Anthropic API 根地址，客户端会追加 /v1/messages，请勿包含该后缀。服务可能不支持模型检测。",
     "settings.customEndpoints.baseUrl": "Base URL",
     "settings.customEndpoints.baseUrlHelp":
-      "请包含 {suffix} 后缀。Ollama：{ollama}。vLLM：{vllm}。",
+      "填写 API 基础地址，保留版本前缀（通常为 {suffix}），不要追加 /chat/completions 或 /responses。Ollama：{ollama}。vLLM：{vllm}。",
     "settings.customEndpoints.apiKey": "API 密钥",
     "settings.customEndpoints.apiKeyPlaceholder": "vLLM：填写其密钥；Ollama：留空",
     "settings.customEndpoints.apiKeyHelp":
@@ -328,7 +338,7 @@ export const settingsMessages = defineMessages(
     "settings.customEndpoints.detecting": "正在检测…",
     "settings.customEndpoints.detectModels": "检测模型",
     "settings.customEndpoints.toolCallingHelp":
-      "模型需要支持工具调用。较小的模型（< 7B）通常无法稳定输出 OpenAI 风格的函数调用。",
+      "请选择支持稳定工具调用的模型。模型检测是可选步骤；服务不提供模型列表时，可手动填写模型 ID。",
     "settings.customEndpoints.cancel": "取消",
     "settings.customEndpoints.saveChanges": "保存更改",
     "settings.customEndpoints.checklistEmpty": "点击“检测模型”，或在下方输入模型 ID 手动添加。",

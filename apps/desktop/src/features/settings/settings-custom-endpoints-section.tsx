@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   CUSTOM_PROVIDER_ID_PATTERN,
+  CUSTOM_PROVIDER_APIS,
+  isCustomProviderApi,
   isValidHttpBaseUrl,
 } from "@lancer/pi-sdk-driver/custom-provider-types";
 import { t, tPlural } from "../../../contracts/i18n";
@@ -172,6 +174,7 @@ function CustomEndpointDialog({
   const initial = mode.kind === "edit" ? mode.original : undefined;
   const [providerId, setProviderId] = useState(initial?.providerId ?? "");
   const [baseUrl, setBaseUrl] = useState(initial?.baseUrl ?? "");
+  const [protocol, setProtocol] = useState(initial ? (initial.api ?? "") : "openai-completions");
   const [apiKey, setApiKey] = useState(initial?.apiKey ?? "");
   const [models, setModels] = useState<CustomProviderModelConfig[]>(
     initial ? [...initial.models] : [],
@@ -220,6 +223,7 @@ function CustomEndpointDialog({
     setProbeError(undefined);
     const result = await api.probeCustomProviderModels({
       baseUrl: baseUrl.trim(),
+      ...(isCustomProviderApi(protocol) ? { api: protocol } : {}),
       apiKey: apiKey.trim() ? apiKey.trim() : undefined,
     });
     setProbePending(false);
@@ -270,6 +274,7 @@ function CustomEndpointDialog({
     const error = await onSave({
       providerId: providerId.trim(),
       baseUrl: baseUrl.trim(),
+      ...(isCustomProviderApi(protocol) ? { api: protocol } : {}),
       ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
       models,
     });
@@ -337,21 +342,60 @@ function CustomEndpointDialog({
             )}
           </label>
           <label className="settings-field">
+            <span>{t("settings.customEndpoints.protocol")}</span>
+            <select
+              aria-label={t("settings.customEndpoints.protocol")}
+              className="settings-search"
+              disabled={savePending || probePending}
+              value={protocol}
+              onChange={(event) => {
+                setProtocol(event.target.value);
+                setProbeCandidates([]);
+                setProbeError(undefined);
+              }}
+            >
+              {initial && !initial.api ? (
+                <option value="">{t("settings.customEndpoints.keepProtocol")}</option>
+              ) : null}
+              {CUSTOM_PROVIDER_APIS.map((api) => (
+                <option key={api} value={api}>
+                  {api}
+                </option>
+              ))}
+            </select>
+            {isEdit ? (
+              <span className="settings-row__description">
+                {t("settings.customEndpoints.preserveAdvanced")}
+              </span>
+            ) : null}
+          </label>
+          <label className="settings-field">
             <span>{t("settings.customEndpoints.baseUrl")}</span>
             <input
               aria-label={t("settings.customEndpoints.baseUrl")}
               className="settings-search"
-              disabled={savePending}
+              disabled={savePending || probePending}
               placeholder="http://localhost:11434/v1"
               value={baseUrl}
-              onChange={(event) => setBaseUrl(event.target.value)}
+              onChange={(event) => {
+                setBaseUrl(event.target.value);
+                setProbeCandidates([]);
+                setProbeError(undefined);
+              }}
             />
             <span className="settings-row__description">
-              {withCode(t("settings.customEndpoints.baseUrlHelp"), {
-                suffix: "/v1",
-                ollama: "http://localhost:11434/v1",
-                vllm: "http://localhost:8000/v1",
-              })}
+              {withCode(
+                t(
+                  protocol === "anthropic-messages"
+                    ? "settings.customEndpoints.anthropicBaseUrlHelp"
+                    : "settings.customEndpoints.baseUrlHelp",
+                ),
+                {
+                  suffix: "/v1",
+                  ollama: "http://localhost:11434/v1",
+                  vllm: "http://localhost:8000/v1",
+                },
+              )}
             </span>
           </label>
           <label className="settings-field">
@@ -359,11 +403,15 @@ function CustomEndpointDialog({
             <input
               aria-label={t("settings.customEndpoints.apiKey")}
               className="settings-search"
-              disabled={savePending}
+              disabled={savePending || probePending}
               placeholder={t("settings.customEndpoints.apiKeyPlaceholder")}
               type="password"
               value={apiKey}
-              onChange={(event) => setApiKey(event.target.value)}
+              onChange={(event) => {
+                setApiKey(event.target.value);
+                setProbeCandidates([]);
+                setProbeError(undefined);
+              }}
             />
             <span className="settings-row__description">
               {withCode(t("settings.customEndpoints.apiKeyHelp"), { flag: "--api-key" })}
@@ -375,7 +423,7 @@ function CustomEndpointDialog({
               <span>{t("settings.customEndpoints.models")}</span>
               <button
                 className="button button--secondary"
-                disabled={probePending || savePending}
+                disabled={probePending || savePending || !protocol}
                 ref={probeButtonRef}
                 type="button"
                 onClick={() =>

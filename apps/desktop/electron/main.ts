@@ -1719,12 +1719,24 @@ async function probeCustomProviderModels(
   if (!baseUrl || !isValidHttpBaseUrl(baseUrl)) {
     return { ok: false, error: "Base URL must start with http:// or https://" };
   }
-  const target = `${baseUrl.replace(/\/+$/, "")}/models`;
+  const api = input.api ?? "openai-completions";
+  const normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
+  const target =
+    api === "anthropic-messages" ? `${normalizedBaseUrl}/v1/models` : `${normalizedBaseUrl}/models`;
   const apiKey = input.apiKey?.trim();
+  const headers: Record<string, string> =
+    api === "anthropic-messages" ? { "anthropic-version": "2023-06-01" } : {};
+  if (apiKey) {
+    if (api === "anthropic-messages") {
+      headers["x-api-key"] = apiKey;
+    } else {
+      headers.Authorization = `Bearer ${apiKey}`;
+    }
+  }
   try {
     const response = await net.fetch(target, {
       method: "GET",
-      headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined,
+      headers,
       signal: AbortSignal.timeout(5000),
     });
     if (!response.ok) {

@@ -5,6 +5,7 @@ import {
   CUSTOM_PROVIDER_ID_PATTERN,
   CUSTOM_PROVIDER_PLACEHOLDER_API_KEY,
   isValidHttpBaseUrl,
+  isCustomProviderApi,
   OPENAI_COMPLETIONS_API,
   PI_GUI_CUSTOM_PROVIDER_MARKER,
   type CustomProviderEntry,
@@ -89,6 +90,9 @@ export class CustomProviderStore {
 }
 
 function validateInput(input: CustomProviderInput): void {
+  if (input.api !== undefined && !isCustomProviderApi(input.api)) {
+    throw new Error("Unsupported custom provider API protocol.");
+  }
   if (!CUSTOM_PROVIDER_ID_PATTERN.test(input.providerId)) {
     throw new Error(
       `Provider ID must be lowercase alphanumerics or dashes (max 64 chars): ${JSON.stringify(input.providerId)}`,
@@ -128,7 +132,7 @@ function toProviderConfig(
   return {
     ...existing,
     baseUrl: input.baseUrl,
-    api: existing?.api ?? OPENAI_COMPLETIONS_API,
+    api: input.api ?? existing?.api ?? OPENAI_COMPLETIONS_API,
     apiKey: trimmedKey ? trimmedKey : CUSTOM_PROVIDER_PLACEHOLDER_API_KEY,
     [PI_GUI_CUSTOM_PROVIDER_MARKER]: true,
     models: input.models.map((model) => {
@@ -184,6 +188,7 @@ function readCustomProviders(data: ModelsJson): readonly CustomProviderEntry[] {
     entries.push({
       providerId,
       baseUrl,
+      ...(isCustomProviderApi(config.api) ? { api: config.api } : {}),
       ...(apiKey !== undefined ? { apiKey } : {}),
       models,
     });

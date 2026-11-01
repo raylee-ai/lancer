@@ -1,3 +1,15 @@
+export const CUSTOM_PROVIDER_APIS = [
+  "openai-completions",
+  "openai-responses",
+  "anthropic-messages",
+] as const;
+
+export type CustomProviderApi = (typeof CUSTOM_PROVIDER_APIS)[number];
+
+export function isCustomProviderApi(value: unknown): value is CustomProviderApi {
+  return CUSTOM_PROVIDER_APIS.some((api) => api === value);
+}
+
 export interface CustomProviderModelInput {
   readonly id: string;
   readonly contextWindow?: number;
@@ -6,6 +18,7 @@ export interface CustomProviderModelInput {
 export interface CustomProviderInput {
   readonly providerId: string;
   readonly baseUrl: string;
+  readonly api?: CustomProviderApi;
   readonly apiKey?: string;
   readonly models: readonly CustomProviderModelInput[];
 }
@@ -13,6 +26,7 @@ export interface CustomProviderInput {
 export interface CustomProviderEntry {
   readonly providerId: string;
   readonly baseUrl: string;
+  readonly api?: CustomProviderApi;
   readonly apiKey?: string;
   readonly models: readonly CustomProviderModelInput[];
 }

@@ -71,6 +71,12 @@ test("editing an endpoint URL preserves advanced provider and model configuratio
     await entryRow.getByRole("button", { name: "Edit", exact: true }).click();
     const dialog = window.getByTestId("custom-endpoint-dialog");
     await expect(dialog.getByLabel("Provider ID")).toHaveValue(providerId);
+    const protocol = dialog.getByLabel("API protocol", { exact: true });
+    await expect(protocol).toHaveValue("");
+    await expect(protocol.locator("option:checked")).toHaveText(
+      "Keep existing protocol (advanced configuration)",
+    );
+    await expect(dialog.getByRole("button", { name: "Detect models", exact: true })).toBeDisabled();
     await expect(dialog.getByLabel("Enable vision-model", { exact: true })).toBeChecked();
     const updatedBaseUrl = "http://127.0.0.1:39998";
     await dialog.getByLabel("Base URL").fill(updatedBaseUrl);
@@ -87,6 +93,7 @@ test("editing an endpoint URL preserves advanced provider and model configuratio
 
     await entryRow.getByRole("button", { name: "Edit", exact: true }).click();
     await expect(dialog.getByLabel("Base URL")).toHaveValue(updatedBaseUrl);
+    await expect(protocol).toHaveValue("");
     await expect(dialog.getByLabel("Enable vision-model", { exact: true })).toBeChecked();
     await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
   } finally {

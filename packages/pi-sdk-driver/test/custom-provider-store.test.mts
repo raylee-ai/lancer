@@ -44,7 +44,9 @@ await test("missing file or providers supports saving and reopening an endpoint"
       assert.deepEqual(await store.list(), []);
       assert.equal(await store.delete(endpoint.providerId), false);
       await store.set(endpoint);
-      assert.deepEqual(await new CustomProviderStore(path).list(), [endpoint]);
+      assert.deepEqual(await new CustomProviderStore(path).list(), [
+        { ...endpoint, api: "openai-completions" },
+      ]);
       if (initial) {
         const saved = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
         assert.deepEqual(saved.futureSetting, {
@@ -173,6 +175,53 @@ await test("the queue recovers once malformed saved data is repaired externally"
     await assert.rejects(() => store.set(endpoint), /JSON object for providers/);
     await writeFile(path, '{"providers":{}}');
     await store.set(endpoint);
-    assert.deepEqual(await store.list(), [endpoint]);
+    assert.deepEqual(await store.list(), [{ ...endpoint, api: "openai-completions" }]);
+  });
+});
+
+for (const api of ["openai-completions", "openai-responses", "anthropic-messages"] as const) {
+  await test(`roundtrips ${api} and retains model protocol overrides`, async () => {
+    await withStore(async (store, path) => {
+      await store.set({ ...endpoint, api });
+      const [listed] = await new CustomProviderStore(path).list();
+      assert.equal(listed.api, api);
+      const saved = JSON.parse(await readFile(path, "utf8")) as {
+        providers: Record<string, Record<string, unknown>>;
+      };
+      assert.equal(saved.providers[endpoint.providerId].api, api);
+    });
+  });
+}
+
+await test("omitted API preserves unsupported advanced protocols and defaults new endpoints", async () => {
+  await withStore(async (store, path) => {
+    const provider = {
+      baseUrl: endpoint.baseUrl,
+      api: "future-protocol",
+      piGuiCustomEndpoint: true,
+      apiKey: "unused",
+      models: [{ id: "test-model", api: "openai-responses" }],
+    };
+    await writeFile(path, JSON.stringify({ providers: { [endpoint.providerId]: provider } }));
+    const [listed] = await store.list();
+    assert.equal(listed.api, undefined);
+    await store.set({ ...listed, baseUrl: "http://localhost:9090" });
+    const saved = JSON.parse(await readFile(path, "utf8")) as {
+      providers: Record<string, Record<string, unknown>>;
+    };
+    assert.deepEqual(saved.providers[endpoint.providerId], {
+      ...provider,
+      baseUrl: "http://localhost:9090",
+    });
+    await store.set({ ...listed, api: "anthropic-messages" });
+    const changed = JSON.parse(await readFile(path, "utf8")) as {
+      providers: Record<string, Record<string, unknown>>;
+    };
+    assert.equal(changed.providers[endpoint.providerId].api, "anthropic-messages");
+    assert.deepEqual(changed.providers[endpoint.providerId].models, provider.models);
+    await assert.rejects(
+      () => store.set({ ...endpoint, api: "invalid" as "openai-completions" }),
+      /Unsupported custom provider API/,
+    );
   });
 });
