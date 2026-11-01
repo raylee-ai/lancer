@@ -78,6 +78,83 @@ await test("set and delete preserve unrelated upstream fields and providers", as
   });
 });
 
+await test("editing an endpoint preserves provider and model fields outside the form", async () => {
+  await withStore(async (store, path) => {
+    const advancedModel = {
+      id: "vision-model",
+      input: ["text", "image"],
+      reasoning: true,
+      maxTokens: 4096,
+      contextWindow: 32000,
+      compat: { supportsDeveloperRole: false },
+      futureModelField: { retained: true },
+    };
+    const original = {
+      providers: {
+        [endpoint.providerId]: {
+          baseUrl: endpoint.baseUrl,
+          api: "openai-responses",
+          apiKey: "unused",
+          piGuiCustomEndpoint: true,
+          headers: { "X-Example": "synthetic" },
+          futureProviderField: { retained: true },
+          models: [advancedModel],
+        },
+      },
+    };
+    await writeFile(path, JSON.stringify(original));
+    const [listed] = await store.list();
+    await store.set({ ...listed, baseUrl: "http://localhost:9090/v1" });
+    const saved = JSON.parse(await readFile(path, "utf8")) as {
+      providers: Record<string, Record<string, unknown>>;
+    };
+    assert.deepEqual(saved.providers[endpoint.providerId], {
+      ...original.providers[endpoint.providerId],
+      baseUrl: "http://localhost:9090/v1",
+    });
+  });
+});
+
+await test("model edits preserve fields by ID while removed models stay removed", async () => {
+  await withStore(async (store, path) => {
+    await writeFile(
+      path,
+      JSON.stringify({
+        providers: {
+          [endpoint.providerId]: {
+            baseUrl: endpoint.baseUrl,
+            api: "openai-completions",
+            apiKey: "unused",
+            piGuiCustomEndpoint: true,
+            models: [
+              { id: "removed-model", input: ["text", "image"] },
+              { id: "kept-model", reasoning: true, contextWindow: 32000 },
+            ],
+          },
+        },
+      }),
+    );
+    await store.set({
+      ...endpoint,
+      models: [{ id: "kept-model", contextWindow: 64000 }, { id: "new-model" }],
+    });
+    const saved = JSON.parse(await readFile(path, "utf8")) as {
+      providers: Record<string, Record<string, unknown>>;
+    };
+    assert.deepEqual(saved.providers[endpoint.providerId].models, [
+      { id: "kept-model", reasoning: true, contextWindow: 64000 },
+      { id: "new-model" },
+    ]);
+    await store.set({ ...endpoint, models: [{ id: "kept-model" }] });
+    const cleared = JSON.parse(await readFile(path, "utf8")) as {
+      providers: Record<string, Record<string, unknown>>;
+    };
+    assert.deepEqual(cleared.providers[endpoint.providerId].models, [
+      { id: "kept-model", reasoning: true },
+    ]);
+  });
+});
+
 await test("malformed existing target configs are never overwritten", async () => {
   for (const config of [null, false, 0, "saved-value", [], {}]) {
     await withStore(async (store, path) => {

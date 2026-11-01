@@ -56,7 +56,10 @@ export class CustomProviderStore {
           `Provider ID "${input.providerId}" already exists in models.json and is not managed by pi-gui.`,
         );
       }
-      providers[input.providerId] = toProviderConfig(input);
+      providers[input.providerId] = toProviderConfig(
+        input,
+        isRecord(existing) ? existing : undefined,
+      );
       await atomicWriteJson(this.modelsJsonPath, data);
     });
   }
@@ -109,17 +112,31 @@ function validateInput(input: CustomProviderInput): void {
   }
 }
 
-function toProviderConfig(input: CustomProviderInput): Record<string, unknown> {
+function toProviderConfig(
+  input: CustomProviderInput,
+  existing?: Record<string, unknown>,
+): Record<string, unknown> {
   const trimmedKey = input.apiKey?.trim();
+  const existingModels = new Map<string, Record<string, unknown>>();
+  if (Array.isArray(existing?.models)) {
+    for (const model of existing.models) {
+      if (isRecord(model) && typeof model.id === "string") {
+        existingModels.set(model.id, model);
+      }
+    }
+  }
   return {
+    ...existing,
     baseUrl: input.baseUrl,
-    api: OPENAI_COMPLETIONS_API,
+    api: existing?.api ?? OPENAI_COMPLETIONS_API,
     apiKey: trimmedKey ? trimmedKey : CUSTOM_PROVIDER_PLACEHOLDER_API_KEY,
     [PI_GUI_CUSTOM_PROVIDER_MARKER]: true,
     models: input.models.map((model) => {
-      const entry: Record<string, unknown> = { id: model.id };
+      const entry: Record<string, unknown> = { ...existingModels.get(model.id), id: model.id };
       if (model.contextWindow !== undefined) {
         entry.contextWindow = model.contextWindow;
+      } else {
+        delete entry.contextWindow;
       }
       return entry;
     }),
