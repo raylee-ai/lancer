@@ -266,10 +266,20 @@ async function openSystemNotificationSettingsInternal(): Promise<void> {
     return;
   }
 
+  if (process.platform === "win32") {
+    // Windows opens the per-app notification page straight from this URI.
+    try {
+      await shell.openExternal("ms-settings:notifications");
+    } catch (error) {
+      console.warn("[notifications] could not open Windows notification settings", error);
+    }
+    return;
+  }
+
   if (process.platform !== "darwin") {
-    await shell.openExternal(
-      "https://support.apple.com/guide/mac-help/change-notifications-settings-mh40583/mac",
-    );
+    // Linux desktops have no cross-environment notification settings URI; the
+    // app must not send users to another platform's help page.
+    console.warn("[notifications] no system notification settings URI for this platform");
     return;
   }
 

@@ -12,6 +12,7 @@ import {
   nativeTheme,
   net,
   protocol,
+  screen,
   shell,
   type MenuItemConstructorOptions,
   type MessageBoxOptions,
@@ -32,6 +33,13 @@ import { augmentPosixPath } from "../scripts/augment-path.cjs";
 import { DesktopAppStore } from "./application/app-store";
 import { WindowOwner } from "./windows/window-owner";
 import { createPiOrbWindow } from "./windows/pi-orb-window";
+import {
+  normalizeWindowBounds,
+  WindowBoundsPersistence,
+  windowBoundsFilePath,
+  type DisplayWorkArea,
+  type WindowBoundsDefaults,
+} from "./windows/window-bounds";
 import { ControlService } from "./control/control-service";
 import { ControlServer } from "./control/control-server";
 import { TurnCheckpointStore } from "./workbench/checkpoint-store";
@@ -434,14 +442,45 @@ function refreshWindowBackgrounds(): void {
   }
 }
 
+const MAIN_WINDOW_BOUNDS: WindowBoundsDefaults = {
+  width: 1480,
+  height: 980,
+  minWidth: 560,
+  minHeight: 600,
+};
+
+let windowBoundsPersistence: WindowBoundsPersistence | undefined;
+
+function mainWindowBoundsPersistence(): WindowBoundsPersistence {
+  windowBoundsPersistence ??= new WindowBoundsPersistence(
+    windowBoundsFilePath(configuredUserDataDir),
+  );
+  return windowBoundsPersistence;
+}
+
+/** Primary display first: it is where unsaved bounds are centered. */
+function displayWorkAreas(): DisplayWorkArea[] {
+  const primary = screen.getPrimaryDisplay();
+  return [primary, ...screen.getAllDisplays().filter((display) => display.id !== primary.id)].map(
+    (display) => display.workArea,
+  );
+}
+
 function createWindow(): BrowserWindow {
   const backgroundTestMode = windowTestMode === "background";
   const enableTransparency = store ? store.snapshot().enableTransparency : false;
+  // Only the first window of a session owns the remembered placement; later
+  // windows keep the ordinary cascade instead of stacking on one saved spot.
+  const ownsSavedBounds = windowOwner.size() === 0;
+  const savedBounds = ownsSavedBounds ? mainWindowBoundsPersistence().read() : undefined;
+  const bounds = normalizeWindowBounds(savedBounds?.bounds, displayWorkAreas(), MAIN_WINDOW_BOUNDS);
   const window = new BrowserWindow({
-    width: 1480,
-    height: 980,
-    minWidth: 560,
-    minHeight: 600,
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
+    minWidth: MAIN_WINDOW_BOUNDS.minWidth,
+    minHeight: MAIN_WINDOW_BOUNDS.minHeight,
     transparent: enableTransparency,
     vibrancy: process.platform === "darwin" && enableTransparency ? "under-window" : undefined,
     titleBarStyle: "hiddenInset",
@@ -501,7 +540,26 @@ function createWindow(): BrowserWindow {
     event.preventDefault();
     surfaceCloseShortcutIds.delete(window.webContents.id);
   });
+  if (ownsSavedBounds) {
+    const persistBounds = () => {
+      if (window.isDestroyed()) {
+        return;
+      }
+      mainWindowBoundsPersistence().schedule({
+        bounds: window.getNormalBounds(),
+        maximized: window.isMaximized(),
+      });
+    };
+    window.on("resize", persistBounds);
+    window.on("move", persistBounds);
+    window.on("maximize", persistBounds);
+    window.on("unmaximize", persistBounds);
+    window.on("close", persistBounds);
+  }
   window.once("ready-to-show", () => {
+    if (savedBounds?.maximized) {
+      window.maximize();
+    }
     if (!backgroundTestMode) {
       window.show();
     }
@@ -722,39 +780,41 @@ function sendAppCommand(command: (typeof desktopCommands)[keyof typeof desktopCo
 }
 
 function installApplicationMenu(): void {
-  if (process.platform !== "darwin") {
-    return;
-  }
-
+  const isMac = process.platform === "darwin";
   const appName = app.name;
   const template: MenuItemConstructorOptions[] = [
-    {
-      label: appName,
-      submenu: [
-        { role: "about", label: t("menu.about", { appName }) },
-        { type: "separator" },
-        {
-          label: t("menu.settings"),
-          accelerator: "CommandOrControl+,",
-          // The renderer owns Cmd+, so the menu only shows the hint.
-          registerAccelerator: false,
-          click: () => sendAppCommand(desktopCommands.openSettings),
-        },
-        {
-          id: MODELS_AND_ACCOUNTS_MENU_ITEM_ID,
-          label: t("menu.modelsAndAccounts"),
-          click: () => sendAppCommand(desktopCommands.openModelsAndAccounts),
-        },
-        { type: "separator" },
-        { role: "services", label: t("menu.services") },
-        { type: "separator" },
-        { role: "hide", label: t("menu.hide", { appName }) },
-        { role: "hideOthers", label: t("menu.hideOthers") },
-        { role: "unhide", label: t("menu.showAll") },
-        { type: "separator" },
-        { role: "quit", label: t("menu.quit", { appName }) },
-      ],
-    },
+    // The app menu is a macOS convention; Windows and Linux start at File.
+    ...(isMac
+      ? [
+          {
+            label: appName,
+            submenu: [
+              { role: "about", label: t("menu.about", { appName }) },
+              { type: "separator" },
+              {
+                label: t("menu.settings"),
+                accelerator: "CommandOrControl+,",
+                // The renderer owns Cmd+, so the menu only shows the hint.
+                registerAccelerator: false,
+                click: () => sendAppCommand(desktopCommands.openSettings),
+              },
+              {
+                id: MODELS_AND_ACCOUNTS_MENU_ITEM_ID,
+                label: t("menu.modelsAndAccounts"),
+                click: () => sendAppCommand(desktopCommands.openModelsAndAccounts),
+              },
+              { type: "separator" },
+              { role: "services", label: t("menu.services") },
+              { type: "separator" },
+              { role: "hide", label: t("menu.hide", { appName }) },
+              { role: "hideOthers", label: t("menu.hideOthers") },
+              { role: "unhide", label: t("menu.showAll") },
+              { type: "separator" },
+              { role: "quit", label: t("menu.quit", { appName }) },
+            ],
+          } satisfies MenuItemConstructorOptions,
+        ]
+      : []),
     {
       label: t("menu.file"),
       submenu: [
@@ -771,11 +831,22 @@ function installApplicationMenu(): void {
             createAppWindow(windowOwner.foregroundView());
           },
         },
+        // Settings has no other entry point outside macOS, so File carries it.
+        ...(isMac
+          ? []
+          : [
+              {
+                label: t("menu.settings"),
+                accelerator: "CommandOrControl+,",
+                registerAccelerator: false,
+                click: () => sendAppCommand(desktopCommands.openSettings),
+              },
+            ]),
         { type: "separator" },
         {
           id: OPEN_FOLDER_MENU_ITEM_ID,
           label: t("menu.openFolder"),
-          accelerator: "Command+O",
+          accelerator: "CommandOrControl+O",
           click: () => {
             void pickWorkspaceViaDialog(mainWindow).catch((error: unknown) => {
               console.error("[main] pickWorkspaceViaDialog failed", error);
@@ -784,6 +855,7 @@ function installApplicationMenu(): void {
         },
         { type: "separator" },
         { role: "close", label: t("menu.closeWindow") },
+        ...(isMac ? [] : [{ role: "quit" as const, label: t("menu.quit", { appName }) }]),
       ],
     },
     {
@@ -795,17 +867,23 @@ function installApplicationMenu(): void {
         { role: "cut", label: t("menu.cut") },
         { role: "copy", label: t("menu.copy") },
         { role: "paste", label: t("menu.paste") },
-        { role: "pasteAndMatchStyle", label: t("menu.pasteAndMatchStyle") },
+        ...(isMac
+          ? [{ role: "pasteAndMatchStyle" as const, label: t("menu.pasteAndMatchStyle") }]
+          : []),
         { role: "delete", label: t("menu.delete") },
         { role: "selectAll", label: t("menu.selectAll") },
-        { type: "separator" },
-        {
-          label: t("menu.speech"),
-          submenu: [
-            { role: "startSpeaking", label: t("menu.startSpeaking") },
-            { role: "stopSpeaking", label: t("menu.stopSpeaking") },
-          ],
-        },
+        ...(isMac
+          ? [
+              { type: "separator" as const },
+              {
+                label: t("menu.speech"),
+                submenu: [
+                  { role: "startSpeaking" as const, label: t("menu.startSpeaking") },
+                  { role: "stopSpeaking" as const, label: t("menu.stopSpeaking") },
+                ],
+              },
+            ]
+          : []),
       ],
     },
     {
@@ -832,12 +910,13 @@ function installApplicationMenu(): void {
     },
     {
       label: t("menu.window"),
-      role: "window",
+      ...(isMac ? { role: "window" as const } : {}),
       submenu: [
         { role: "minimize", label: t("menu.minimize") },
         { role: "zoom", label: t("menu.zoom") },
-        { type: "separator" },
-        { role: "front", label: t("menu.front") },
+        ...(isMac
+          ? [{ type: "separator" as const }, { role: "front" as const, label: t("menu.front") }]
+          : []),
       ],
     },
   ];
