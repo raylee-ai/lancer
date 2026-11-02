@@ -250,7 +250,7 @@ test("does not request notification permission on launch before any work is back
 
   try {
     const window = await harness.firstWindow();
-    await expect(window.getByLabel("工作区工具", { exact: true })).toBeVisible();
+    await expect(window.getByLabel("Workspace tools", { exact: true })).toBeVisible();
     await expect.poll(() => readOptionalLog(requestLogPath), { timeout: 5_000 }).toBe("");
     expect((await getDesktopState(window)).activeView).toBe("threads");
   } finally {

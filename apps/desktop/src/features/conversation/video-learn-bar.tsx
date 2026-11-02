@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { VideoLearnSnapshot } from "../../../contracts/video-learn";
 import { videoLearnErrorMessage } from "../../../contracts/video-learn";
+import { t } from "../../../contracts/i18n";
 
 export function VideoLearnBar({
   workspaceId,
@@ -75,14 +76,14 @@ export function VideoLearnBar({
   return (
     <section className="video-learn-bar" data-testid="video-learn-bar">
       <div className="video-learn-bar__relay">
-        <b>下载 → 媒体验证 → 模型分析</b>
-        <span className="video-learn-bar__hint">同一工作区 · 门控文件交接</span>
+        <b>{t("lancer.videoLearn.pipeline")}</b>
+        <span className="video-learn-bar__hint">{t("lancer.videoLearn.handoff")}</span>
       </div>
       <div className="video-learn-bar__form">
         <input
           data-testid="video-learn-url"
-          aria-label="抖音链接"
-          placeholder="粘贴抖音链接"
+          aria-label={t("lancer.videoLearn.urlLabel")}
+          placeholder={t("lancer.videoLearn.urlPlaceholder")}
           value={url}
           disabled={running}
           onChange={(event) => setUrl(event.target.value)}
@@ -95,8 +96,8 @@ export function VideoLearnBar({
         />
         <input
           data-testid="video-learn-cookies"
-          aria-label="cookies 文件"
-          placeholder="cookies 文件（可选）"
+          aria-label={t("lancer.videoLearn.cookiesLabel")}
+          placeholder={t("lancer.videoLearn.cookiesPlaceholder")}
           value={cookiesPath}
           disabled={running}
           onChange={(event) => setCookiesPath(event.target.value)}
@@ -107,7 +108,7 @@ export function VideoLearnBar({
           disabled={running || !url.trim()}
           onClick={submit}
         >
-          {running ? "进行中" : "下载并分析"}
+          {running ? t("lancer.videoLearn.running") : t("lancer.videoLearn.submit")}
         </button>
       </div>
       {snapshot ? (

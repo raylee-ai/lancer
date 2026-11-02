@@ -129,6 +129,11 @@ function normalizeRuntimeCommandName(value: string): string {
   return value.trim().replace(/^\/+/, "");
 }
 
+/** Renderer bundles have no `process`; the only caller that renders this hint is main. */
+function hostPlatform(): string {
+  return typeof process === "undefined" ? "linux" : process.platform;
+}
+
 export function formatSessionConfigStatus(config?: SessionConfig): string {
   const parts = [
     config?.provider && config?.modelId
@@ -195,7 +200,15 @@ export function parseComposerCommand(value: string): ParsedComposerCommand | und
   return undefined;
 }
 
-export function incompleteComposerCommandMessage(value: string): string | undefined {
+/** Settings shortcut as users see it: macOS teaches the glyph name, Windows/Linux the key. */
+export function settingsShortcutLabel(platform: string): string {
+  return platform === "darwin" ? "Cmd+," : "Ctrl+,";
+}
+
+export function incompleteComposerCommandMessage(
+  value: string,
+  platform: string = hostPlatform(),
+): string | undefined {
   const trimmed = value.trim();
   if (!trimmed.startsWith("/")) {
     return undefined;
@@ -203,5 +216,10 @@ export function incompleteComposerCommandMessage(value: string): string | undefi
 
   const [command] = trimmed.split(/\s+/);
   const key = command ? INCOMPLETE_COMMAND_MESSAGE_KEYS[command] : undefined;
-  return key ? t(key) : undefined;
+  if (!key) {
+    return undefined;
+  }
+  return key === "composer.incomplete.settings"
+    ? t(key, { shortcut: settingsShortcutLabel(platform) })
+    : t(key);
 }

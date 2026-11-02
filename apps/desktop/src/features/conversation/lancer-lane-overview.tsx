@@ -2,8 +2,10 @@ import { Fragment, type CSSProperties } from "react";
 import {
   LANCER_SESSION_ZONES,
   conversationZoneId,
+  lancerZoneLabel,
   stripLancerZonePrefix,
 } from "../../../contracts/lancer-zones";
+import { t } from "../../../contracts/i18n";
 import { ModelBrandIcon } from "../../ui/model-brand-icon";
 import type { ThreadListEntry } from "../threads/thread-groups";
 
@@ -31,7 +33,7 @@ export function LancerLaneOverview({
           >
             <span className="lancer-lane-overview__zone">
               <i />
-              {zone.label}
+              {lancerZoneLabel(zone)}
             </span>
             {zone.relay.map((model, index) => {
               const thread = threads.find(
@@ -49,7 +51,7 @@ export function LancerLaneOverview({
                     title={
                       thread
                         ? stripLancerZonePrefix(thread.session.title)
-                        : `${model.label} · 计划步骤`
+                        : `${model.label} · ${t("lancer.process.planStep")}`
                     }
                     className={`lancer-lane-overview__model${thread?.session.id === selectedSessionId ? " lancer-lane-overview__model--selected" : ""}`}
                     onClick={() =>
@@ -69,10 +71,10 @@ export function LancerLaneOverview({
       {selected ? (
         <header className="lancer-lane-overview__context">
           <span>
-            {
-              LANCER_SESSION_ZONES.find((zone) => zone.id === conversationZoneId(selected.title))
-                ?.label
-            }
+            {lancerZoneLabel(
+              LANCER_SESSION_ZONES.find((zone) => zone.id === conversationZoneId(selected.title)) ??
+                LANCER_SESSION_ZONES[0]!,
+            )}
           </span>
           <b data-testid="thread-title">{stripLancerZonePrefix(selected.title)}</b>
           <small>{branchName}</small>

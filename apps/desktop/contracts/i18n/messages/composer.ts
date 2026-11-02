@@ -144,7 +144,7 @@ export const composerMessages = defineMessages(
       "Choose a provider and model from the slash menu before sending /model.",
     "composer.incomplete.name": "Add a thread title after /name.",
     "composer.incomplete.scopedModels": "Open Enabled models from the slash menu or Settings.",
-    "composer.incomplete.settings": "Open Settings from the slash menu or Cmd+,.",
+    "composer.incomplete.settings": "Open Settings from the slash menu or {shortcut}.",
     "composer.incomplete.thinking":
       "Choose a reasoning level from the slash menu before sending /thinking.",
 
@@ -293,7 +293,7 @@ export const composerMessages = defineMessages(
     "composer.incomplete.model": "发送 /model 前，请先从斜杠菜单中选择提供商和模型。",
     "composer.incomplete.name": "请在 /name 后添加会话标题。",
     "composer.incomplete.scopedModels": "请从斜杠菜单或设置中打开“已启用的模型”。",
-    "composer.incomplete.settings": "请从斜杠菜单或按 Cmd+, 打开设置。",
+    "composer.incomplete.settings": "请从斜杠菜单或按 {shortcut} 打开设置。",
     "composer.incomplete.thinking": "发送 /thinking 前，请先从斜杠菜单中选择推理强度。",
 
     "composer.status.model": "模型 {provider}:{modelId}",

@@ -23,7 +23,18 @@ export function moduleZones(
 ): readonly LancerSessionZone[] {
   return [
     LANCER_SESSION_ZONES[0]!,
-    ...modules.filter((module) => !module.deleted).map((module) => ({ ...module, relay: [] })),
+    ...modules
+      .filter((module) => !module.deleted)
+      .map((module) => {
+        const preset = LANCER_SESSION_ZONES.find((zone) => zone.id === module.id);
+        return {
+          ...module,
+          relay: [],
+          // A module still carrying its preset name follows the interface
+          // language; a renamed module is user data and stays verbatim.
+          ...(preset && preset.label === module.label ? { labelKey: preset.labelKey } : {}),
+        };
+      }),
   ];
 }
 export function decodeLancerModule(value: unknown): LancerModule {
