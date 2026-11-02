@@ -152,29 +152,37 @@ export function useNewThreadController(params: UseNewThreadControllerParams) {
   // earlier surface neither blocks nor clears what the user types into this one.
   const surfaceGenerationRef = useRef(0);
   const startingGenerationRef = useRef<number | undefined>(undefined);
+  const resolveSurfaceWorkspaceId = useCallback(
+    (workspaceId?: string) =>
+      (workspaceId &&
+        (workspaceOptions.find((w) => w.id === workspaceId)?.id ||
+          (snapshot ? resolveRepoWorkspaceId(snapshot.workspaces, workspaceId) : undefined))) ||
+      selectedWorkspace?.id ||
+      rootWorkspace?.id ||
+      visibleWorkspaces[0]?.id ||
+      "",
+    [rootWorkspace?.id, selectedWorkspace?.id, workspaceOptions, snapshot, visibleWorkspaces],
+  );
   const resetSurface = useCallback(
-    (workspaceId?: string) => {
+    (workspaceId?: string, options: { readonly keepDraft?: boolean } = {}) => {
       surfaceGenerationRef.current += 1;
-      const nextWorkspaceId =
-        (workspaceId &&
-          (workspaceOptions.find((w) => w.id === workspaceId)?.id ||
-            (snapshot ? resolveRepoWorkspaceId(snapshot.workspaces, workspaceId) : undefined))) ||
-        selectedWorkspace?.id ||
-        rootWorkspace?.id ||
-        visibleWorkspaces[0]?.id ||
-        "";
+      const nextWorkspaceId = resolveSurfaceWorkspaceId(workspaceId);
       if (nextWorkspaceId) {
         setRootWorkspaceId(nextWorkspaceId);
       }
       setEnvironment("local");
-      setPrompt("");
-      setAttachments([]);
-      setProvider(undefined);
-      setModelId(undefined);
-      setThinkingLevel(undefined);
+      // A draft is user data: only the callers that change workspace (or the
+      // successful start below) may clear it.
+      if (!options.keepDraft) {
+        setPrompt("");
+        setAttachments([]);
+        setProvider(undefined);
+        setModelId(undefined);
+        setThinkingLevel(undefined);
+      }
       setComposerError(undefined);
     },
-    [rootWorkspace?.id, selectedWorkspace?.id, workspaceOptions, snapshot, visibleWorkspaces],
+    [resolveSurfaceWorkspaceId],
   );
 
   const openSurface = useCallback(
@@ -182,7 +190,13 @@ export function useNewThreadController(params: UseNewThreadControllerParams) {
       // Save the outgoing conversation before the new-thread flow can change its selection.
       flushComposerDraft();
       setPendingWorkspaceId("");
-      resetSurface(workspaceId);
+      // Cmd/Ctrl+N is also how users return to the surface (e.g. after Settings).
+      // Reopening the same workspace keeps what they already typed; a different
+      // workspace starts a clean draft.
+      const nextWorkspaceId = resolveSurfaceWorkspaceId(workspaceId);
+      resetSurface(workspaceId, {
+        keepDraft: Boolean(nextWorkspaceId) && nextWorkspaceId === rootWorkspaceId,
+      });
       openedInAppRef.current = true;
       focusComposer();
       if (api) {
@@ -193,7 +207,15 @@ export function useNewThreadController(params: UseNewThreadControllerParams) {
         );
       }
     },
-    [api, flushComposerDraft, focusComposer, resetSurface, setSnapshot],
+    [
+      api,
+      flushComposerDraft,
+      focusComposer,
+      resetSurface,
+      resolveSurfaceWorkspaceId,
+      rootWorkspaceId,
+      setSnapshot,
+    ],
   );
 
   const openFolder = useCallback(() => {
