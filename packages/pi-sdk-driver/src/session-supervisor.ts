@@ -2190,7 +2190,7 @@ export class SessionSupervisor {
           await this.persistSnapshot(record);
         }
         for (const event of events) {
-          await this.emit(record, event);
+          await this.emit(record, this.withDeliverableQueue(record, event));
         }
       },
       (error) => {
@@ -2202,6 +2202,45 @@ export class SessionSupervisor {
         );
       },
     );
+  }
+
+  /**
+   * Agent events are mapped when they fire but delivered later through the
+   * per-session queue, so a snapshot can predate a queue change — most visibly
+   * Stop, which clears the steer/follow-up queue and then emits its own update
+   * while an already-mapped `sessionUpdated` is still waiting to be delivered.
+   * Delivering that stale snapshot resurrects the entries the user just
+   * discarded, so the queue (which is current state, not history) is taken from
+   * the record at delivery time.
+   */
+  private withDeliverableQueue(
+    record: ManagedSessionRecord,
+    event: SessionDriverEvent,
+  ): SessionDriverEvent {
+    if (
+      event.type !== "sessionOpened" &&
+      event.type !== "sessionUpdated" &&
+      event.type !== "runCompleted"
+    ) {
+      return event;
+    }
+    const queuedMessages = record.queuedMessages.map((message) => cloneQueuedMessage(message));
+    const delivered = event.snapshot.queuedMessages ?? [];
+    const unchanged =
+      delivered.length === queuedMessages.length &&
+      delivered.every((message, index) => message.id === queuedMessages[index]?.id);
+    if (unchanged) {
+      return event;
+    }
+    const snapshot = { ...event.snapshot };
+    if (queuedMessages.length > 0) {
+      snapshot.queuedMessages = queuedMessages;
+    } else {
+      // `buildSnapshot` omits the key when nothing is queued; keep that shape so
+      // an emptied queue is not distinguishable from a snapshot built empty.
+      delete snapshot.queuedMessages;
+    }
+    return { ...event, snapshot };
   }
 
   private handleAgentEvent(record: ManagedSessionRecord, event: AgentSessionEvent): void {
