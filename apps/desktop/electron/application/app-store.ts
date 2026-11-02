@@ -124,6 +124,11 @@ import {
   toSessionQueuedMessages,
   toSessionRef,
 } from "./app-store-utils";
+import {
+  projectEditingQueuedMessageId,
+  projectQueuedComposerMessages,
+  projectSelectedSessionFields,
+} from "./selected-session-projection";
 import type { CustomProviderConfig } from "../../contracts/ipc";
 import { resolveRepoWorkspaceId } from "../../contracts/workspace-roots";
 import { decodeTaskWorkbenchTemplate, type TaskWorkbenchTemplate } from "../../contracts/workbench";
@@ -411,6 +416,8 @@ export class DesktopAppStore {
       schedulePersistUiState: () => this.schedulePersistUiState(),
       recordUserMessageRecency: (sessionRef) => this.recordUserMessageRecency(sessionRef),
       getQueuedComposerMessages: (sessionRef) => this.getQueuedComposerMessages(sessionRef),
+      updateQueuedComposerMessages: (sessionRef, queuedMessages) =>
+        this.updateQueuedComposerMessages(sessionRef, queuedMessages),
       setQueuedComposerEditState: (sessionRef, editState) =>
         this.setQueuedComposerEditState(sessionRef, editState),
       getQueuedComposerEditState: (sessionRef) => this.getQueuedComposerEditState(sessionRef),
@@ -972,7 +979,10 @@ export class DesktopAppStore {
       } catch (error) {
         await this.handleSelectedSessionHydrationError(sessionRef, selectionEpoch, error);
       }
-      return structuredClone(this.state);
+      // Hydration can land session events for the newly selected thread; return
+      // a projection, not the raw snapshot, so the selection reply cannot carry
+      // a queue the mirror no longer holds.
+      return structuredClone(projectSelectedSessionFields(this.state, this.sessionState));
     });
   }
 
@@ -4123,7 +4133,14 @@ export class DesktopAppStore {
     // happens to climb back past the renderer's high-water mark. Stamp the
     // revision at the publish point instead of trusting the mutation sites.
     this.publishRevision = Math.max(this.publishRevision, this.state.revision) + 1;
-    this.state = { ...this.state, revision: this.publishRevision };
+    // The selected session's queue is derived from the per-session mirrors, not
+    // owned by `this.state`. Events that fill the mirrors are handled on a FIFO
+    // (see enqueueSessionEvent), so a publish built right after an IPC mutation —
+    // Stop, for instance — would otherwise ship the previously resolved queue.
+    this.state = projectSelectedSessionFields(
+      { ...this.state, revision: this.publishRevision },
+      this.sessionState,
+    );
     // Same reasoning as projectStateForView: listeners only read the snapshot or
     // send it over IPC, so it does not need a defensive deep copy.
     const snapshot = this.state;
@@ -4543,32 +4560,14 @@ export class DesktopAppStore {
     selectedWorkspaceId: string,
     selectedSessionId: string,
   ): readonly QueuedComposerMessage[] {
-    if (!selectedWorkspaceId || !selectedSessionId) {
-      return [];
-    }
-
-    return (
-      this.sessionState.queuedComposerMessagesBySession
-        .get(sessionKey({ workspaceId: selectedWorkspaceId, sessionId: selectedSessionId }))
-        ?.filter((message) => message.mode === "followUp")
-        .map((message) => ({
-          ...message,
-          attachments: cloneComposerAttachments(message.attachments),
-        })) ?? []
-    );
+    return projectQueuedComposerMessages(selectedWorkspaceId, selectedSessionId, this.sessionState);
   }
 
   private resolveEditingQueuedMessageId(
     selectedWorkspaceId: string,
     selectedSessionId: string,
   ): string | undefined {
-    if (!selectedWorkspaceId || !selectedSessionId) {
-      return undefined;
-    }
-
-    return this.sessionState.queuedComposerEditsBySession.get(
-      sessionKey({ workspaceId: selectedWorkspaceId, sessionId: selectedSessionId }),
-    )?.messageId;
+    return projectEditingQueuedMessageId(selectedWorkspaceId, selectedSessionId, this.sessionState);
   }
 
   private resolveSelectedSessionError(

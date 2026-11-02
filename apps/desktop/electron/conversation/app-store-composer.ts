@@ -120,6 +120,10 @@ interface ConversationOwnerHost {
   schedulePersistUiState(): void;
   recordUserMessageRecency(sessionRef: SessionRef): boolean;
   getQueuedComposerMessages(sessionRef: SessionRef): readonly QueuedComposerMessage[];
+  updateQueuedComposerMessages(
+    sessionRef: SessionRef,
+    queuedMessages: readonly SessionQueuedMessage[] | undefined,
+  ): void;
   setQueuedComposerEditState(
     sessionRef: SessionRef,
     editState: QueuedComposerEditState | undefined,
@@ -658,6 +662,11 @@ async function cancelCurrentRun(
 
   try {
     await store.driver.cancelCurrentRun(sessionRef);
+    // Abort discards the run's steer/follow-up queue in the driver. Mirror that
+    // immediately: this reply is built before the per-session event FIFO drains,
+    // so waiting for the driver's sessionUpdated event would return the queue the
+    // user just stopped — reading as "Stop did not work".
+    store.updateQueuedComposerMessages(sessionRef, []);
     // The queued message-end event owns this clear, so a delayed host event queue
     // can still associate the partial live row with its persisted Pi entry.
     store.conversationState.sessionErrorsBySession.delete(sessionKey(sessionRef));

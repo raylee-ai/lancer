@@ -81,6 +81,7 @@ test("Stop preserves the live identity while already-enqueued host events are de
   h.append("Partial response before Stop");
   const originalId = h.transcript.get(key)![0]!.id;
   // Only the cancellation path is exercised; the event queue intentionally has not drained.
+  const clearedQueues: string[] = [];
   const owner = createConversationOwner({
     initialize: async () => undefined,
     driver: { cancelCurrentRun: async () => undefined },
@@ -90,12 +91,16 @@ test("Stop preserves the live identity while already-enqueued host events are de
     },
     clearConversationError: () => undefined,
     schedulePersistUiState: () => undefined,
+    updateQueuedComposerMessages: (ref: { sessionId: string }) => clearedQueues.push(ref.sessionId),
     emit: () => ({}),
     withSessionError: (_ref: unknown, error: unknown) => {
       throw error;
     },
   } as never);
   await owner.cancelCurrentRun(sessionRef);
+  // The reply is built before the event FIFO drains, so Stop must mirror the
+  // driver's discarded queue itself.
+  expect(clearedQueues).toEqual([sessionRef.sessionId]);
   expect(h.state.activeAssistantMessageBySession.get(key)).toBe(originalId);
   h.ended();
   h.persisted("native-stopped-response");
