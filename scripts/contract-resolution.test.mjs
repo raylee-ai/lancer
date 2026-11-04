@@ -27,9 +27,13 @@ const rejected: SessionDriver = incomplete;
   const options = { ...parsed.options, noEmit: true };
   const host = ts.createCompilerHost(options);
   const getSourceFile = host.getSourceFile.bind(host);
+  // TypeScript canonicalizes requested names to forward slashes on Windows, so
+  // compare normalized paths when injecting the in-memory proof source.
+  const samePath = (left, right) =>
+    left.split(path.sep).join("/") === right.split(path.sep).join("/");
   host.getSourceFile = (name, languageVersion, onError, shouldCreateNewSourceFile) =>
-    name === file
-      ? ts.createSourceFile(file, text, languageVersion, true)
+    samePath(name, file)
+      ? ts.createSourceFile(name, text, languageVersion, true)
       : getSourceFile(name, languageVersion, onError, shouldCreateNewSourceFile);
   const program = ts.createProgram([...parsed.fileNames, file], options, host);
   const diagnostics = ts.getPreEmitDiagnostics(program);
@@ -37,7 +41,10 @@ const rejected: SessionDriver = incomplete;
     ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"),
   );
   assert.equal(diagnostics.length, 1, rendered.join("\n"));
-  assert.equal(diagnostics[0].file?.fileName, file);
+  assert.equal(
+    diagnostics[0].file?.fileName.split(path.sep).join("/"),
+    file.split(path.sep).join("/"),
+  );
   assert.match(rendered[0], /missing.*getSessionTree, navigateSessionTree/);
   const source = program.getSourceFile(file);
   const binding = source.statements[0].importClause.namedBindings.elements[0].name;
@@ -45,8 +52,8 @@ const rejected: SessionDriver = incomplete;
   const declaration = checker.getAliasedSymbol(checker.getSymbolAtLocation(binding))
     .declarations[0];
   assert.equal(
-    declaration.getSourceFile().fileName,
-    path.join(root, "packages/session-driver/dist/types.d.ts"),
+    declaration.getSourceFile().fileName.split(path.sep).join("/"),
+    path.join(root, "packages/session-driver/dist/types.d.ts").split(path.sep).join("/"),
   );
 });
 

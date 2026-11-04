@@ -38,13 +38,39 @@ export async function writeFileAtomic(filePath: string, data: string | Uint8Arra
   }
 
   try {
-    await rename(tmpPath, filePath);
+    await renameWithRetry(tmpPath, filePath);
   } catch (error) {
     await rm(tmpPath, { force: true }).catch(() => {});
     throw error;
   }
 
   await syncDirectory(dir);
+}
+
+/**
+ * Windows briefly locks a rename destination while another rename over the same
+ * target is in flight, so concurrent writers can observe EPERM/EACCES/EBUSY
+ * even though every individual rename is atomic. Retrying with a short bounded
+ * backoff resolves contention without weakening the atomic-replace guarantee;
+ * POSIX rename never fails this way, so the retry only runs on Windows.
+ */
+const RENAME_RETRY_DELAYS_MS = [5, 10, 20, 40, 80, 160, 320, 500];
+
+async function renameWithRetry(tmpPath: string, filePath: string): Promise<void> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await rename(tmpPath, filePath);
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException | null)?.code;
+      const retryable =
+        process.platform === "win32" && (code === "EPERM" || code === "EACCES" || code === "EBUSY");
+      if (!retryable || attempt >= RENAME_RETRY_DELAYS_MS.length) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, RENAME_RETRY_DELAYS_MS[attempt]));
+    }
+  }
 }
 
 /** Serialize `value` as pretty JSON with a trailing newline and write it atomically. */

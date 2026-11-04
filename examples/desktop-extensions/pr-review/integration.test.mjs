@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -20,9 +20,17 @@ import { DESKTOP_VIEW_REGISTER } from "@lancer/extension-ui";
 
 // This is an offline integration test, not a real GitHub or model review.
 // Only gh's metadata response is a fixture; Pi, its file loader, Chord, and Git run normally.
+// The gh fixture is a POSIX shim script; Windows execFile resolves only .exe and
+// refuses .cmd shims without a shell, so this admission proof stays POSIX-only.
 test(
   "the actual file-based extension keeps a rejected Pi preflight Requested, then restores Interrupted",
-  { timeout: 20_000 },
+  {
+    timeout: 20_000,
+    skip:
+      process.platform === "win32"
+        ? "the gh fixture is a POSIX shim script that Windows execFile cannot run"
+        : false,
+  },
   async () => {
     const directory = await mkdtemp(join(tmpdir(), "pi-pr-review-admission-"));
     const cwd = join(directory, "checkout");
@@ -68,7 +76,7 @@ test(
     await chmod(gh, 0o755);
 
     const previousPath = process.env.PATH;
-    process.env.PATH = `${bin}:${previousPath ?? ""}`;
+    process.env.PATH = `${bin}${delimiter}${previousPath ?? ""}`;
     const bus = createEventBus();
     const declarations = [];
     bus.on(DESKTOP_VIEW_REGISTER, (event) => {
