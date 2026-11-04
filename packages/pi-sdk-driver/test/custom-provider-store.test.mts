@@ -157,6 +157,70 @@ await test("model edits preserve fields by ID while removed models stay removed"
   });
 });
 
+await test("saving a managed endpoint without an API defaults it without losing advanced fields", async () => {
+  await withStore(async (store, path) => {
+    const provider = {
+      baseUrl: endpoint.baseUrl,
+      apiKey: "unused",
+      piGuiCustomEndpoint: true,
+      headers: { "X-Fixture": "preserve-me" },
+      compat: { supportsDeveloperRole: false },
+      futureProviderField: { retained: true },
+      models: [
+        { id: "inherited-model", reasoning: true, maxTokens: 8192 },
+        {
+          id: "override-model",
+          api: "openai-responses",
+          baseUrl: "https://gateway.example.com/model-specific/v1",
+          contextWindow: 64000,
+          headers: { "X-Model-Fixture": "preserve-me" },
+          input: ["text", "image"],
+          futureModelField: { retained: true },
+        },
+      ],
+    };
+    const original = {
+      futureRootField: { retained: true },
+      providers: { [endpoint.providerId]: provider },
+    };
+    const bytes = JSON.stringify(original);
+    await writeFile(path, bytes);
+
+    const [listed] = await store.list();
+    assert.equal(listed.providerId, endpoint.providerId);
+    assert.equal(listed.api, undefined);
+    assert.equal(await readFile(path, "utf8"), bytes);
+    await store.set(listed);
+
+    assert.deepEqual(JSON.parse(await readFile(path, "utf8")), {
+      ...original,
+      providers: { [endpoint.providerId]: { ...provider, api: "openai-completions" } },
+    });
+    assert.deepEqual(await new CustomProviderStore(path).list(), [
+      { ...listed, api: "openai-completions" },
+    ]);
+  });
+});
+
+await test("an unmarked endpoint without a provider API is not taken over", async () => {
+  await withStore(async (store, path) => {
+    const original = JSON.stringify({
+      providers: {
+        [endpoint.providerId]: {
+          baseUrl: endpoint.baseUrl,
+          apiKey: "unused",
+          models: [{ id: "test-model", api: "openai-responses" }],
+        },
+      },
+    });
+    await writeFile(path, original);
+    assert.deepEqual(await store.list(), []);
+    await assert.rejects(() => store.set(endpoint), /not managed by pi-gui/);
+    assert.equal(await store.delete(endpoint.providerId), false);
+    assert.equal(await readFile(path, "utf8"), original);
+  });
+});
+
 await test("malformed existing target configs are never overwritten", async () => {
   for (const config of [null, false, 0, "saved-value", [], {}]) {
     await withStore(async (store, path) => {

@@ -433,17 +433,25 @@ test("custom endpoint dialog supports a long-list keyboard flow with sticky acti
   try {
     const window = await harness.firstWindow();
     video = window.video();
-    await harness.electronApp.evaluate(({ BrowserWindow }) => {
+    const scaleFactor = await harness.electronApp.evaluate(({ BrowserWindow, screen }) => {
       BrowserWindow.getAllWindows()[0]?.setContentSize(900, 600);
+      return screen.getPrimaryDisplay().scaleFactor;
     });
+    test
+      .info()
+      .annotations.push({ type: "display-scale-factor", description: String(scaleFactor) });
+    // Windows can round the native content size by one CSS pixel on a scaled
+    // display. Keep the small viewport and verify its layout/scrolling below.
     await expect
       .poll(() =>
-        window.evaluate(() => ({
-          height: globalThis.window.innerHeight,
-          width: globalThis.window.innerWidth,
-        })),
+        window.evaluate(() =>
+          Math.max(
+            Math.abs(globalThis.window.innerHeight - 600),
+            Math.abs(globalThis.window.innerWidth - 900),
+          ),
+        ),
       )
-      .toEqual({ height: 600, width: 900 });
+      .toBeLessThanOrEqual(1);
     await openProvidersSettings(window);
 
     const customEndpoints = window.locator(".settings-section", {

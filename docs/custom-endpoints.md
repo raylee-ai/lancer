@@ -16,17 +16,24 @@ a duplicate custom provider.
 Choose the protocol your service supports. The base URL is an API base, not a full
 inference URL.
 
-| API protocol         | Base URL rule                                                                           | Model discovery                                                                  |
-| -------------------- | --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `openai-completions` | Include the service's API prefix, often `/v1`. Do not append `/chat/completions`.       | `GET {baseUrl}/models` with Bearer authentication when a key is supplied.        |
-| `openai-responses`   | Include the service's API prefix, often `/v1`. Do not append `/responses`.              | `GET {baseUrl}/models` with Bearer authentication when a key is supplied.        |
-| `anthropic-messages` | Use the Anthropic API root. The SDK appends `/v1/messages`; do not include that suffix. | `GET {root}/v1/models` with `anthropic-version` and, when supplied, `x-api-key`. |
+| API protocol         | Base URL rule                                                                                  | Model discovery                                                                  |
+| -------------------- | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `openai-completions` | Include the service's API prefix, often `/v1`. Do not append `/chat/completions`.              | `GET {baseUrl}/models` with Bearer authentication when a key is supplied.        |
+| `openai-responses`   | Include the service's API prefix, often `/v1`. Do not append `/responses`.                     | `GET {baseUrl}/models` with Bearer authentication when a key is supplied.        |
+| `anthropic-messages` | Use the Anthropic API root. A terminal `/v1` is removed on save; do not append `/v1/messages`. | `GET {root}/v1/models` with `anthropic-version` and, when supplied, `x-api-key`. |
 
 For example, Ollama normally uses `http://localhost:11434/v1`. An Anthropic-compatible
 gateway might use `https://gateway.example.com/anthropic`; the resulting inference
-path is `/anthropic/v1/messages`. Preserve any service-specific prefix documented
-by the provider. Supplying an OpenAI-style `/v1` suffix for Anthropic inference can
-produce an incorrect path, even if model discovery succeeds.
+path is `/anthropic/v1/messages`. For provider-level Anthropic URLs, Lancer removes
+trailing slashes and a single terminal `/v1` from the path both when probing models
+and when saving. For example, `https://gateway.example.com/anthropic/v1/` is saved
+as `https://gateway.example.com/anthropic`. Gateway prefixes are retained. Anthropic
+provider URLs containing query parameters or fragments are rejected during probing
+and saving because the SDK appends its request path to the root. Use custom HTTP
+headers in advanced configuration for gateway authentication or routing instead.
+Other protocols and manually configured model-level `baseUrl` values are not
+rewritten; those model overrides must follow their own protocol's URL convention.
+The Anthropic SDK appends `/v1/messages` to its configured root.
 
 **Detect models** is optional. If the service does not expose a model list, including
 when discovery returns 404, enter an exact model ID under **Add model ID manually**,
@@ -40,6 +47,15 @@ Custom endpoints are stored in `~/.pi/agent/models.json`, including API keys in
 plaintext. For a local server without authentication, leave the key blank; the
 storage format receives an `unused` placeholder. For an authenticated local server,
 enter its configured key.
+
+When Lancer saves a managed custom endpoint without an explicit `api`, it preserves
+the existing provider-level `api`. If neither the submitted configuration nor the
+saved provider has one, saving writes `openai-completions`. This also applies to
+older entries carrying Lancer's `piGuiCustomEndpoint: true` marker. Listing an
+entry does not rewrite the file. This is Lancer's save-time fallback, not a global
+pi runtime default for hand-written `models.json`: a custom provider must specify
+an API at provider or model level. Unmarked configurations without a provider-level
+`api` are not automatically managed by Lancer's custom endpoint editor.
 
 Editing an existing endpoint retains advanced provider fields, such as custom
 headers, and advanced fields for each retained model, matched by its exact model ID.

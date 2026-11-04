@@ -75,3 +75,51 @@ await test("editing a provider protocol preserves a model-level runtime protocol
     "http://127.0.0.1:9/new",
   );
 });
+
+await test("saving a managed endpoint without an API supplies a runtime default and keeps model overrides", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "pi-custom-provider-runtime-"));
+  const modelsPath = join(dir, "models.json");
+  await writeFile(
+    modelsPath,
+    JSON.stringify({
+      providers: {
+        "runtime-fixture": {
+          baseUrl: "http://127.0.0.1:9/gateway/v1",
+          apiKey: "unused",
+          piGuiCustomEndpoint: true,
+          headers: { "X-Fixture": "retained" },
+          models: [
+            { id: "inherited-model", reasoning: true, maxTokens: 8192 },
+            {
+              id: "override-model",
+              api: "openai-responses",
+              baseUrl: "http://127.0.0.1:9/model-specific/v1",
+              input: ["text", "image"],
+              contextWindow: 64000,
+            },
+          ],
+        },
+      },
+    }),
+  );
+  const store = new CustomProviderStore(modelsPath);
+  const [listed] = await store.list();
+  assert.equal(listed.api, undefined);
+  await store.set(listed);
+  const [reopened] = await new CustomProviderStore(modelsPath).list();
+  assert.equal(reopened.api, "openai-completions");
+
+  const runtime = await loadRuntime(modelsPath);
+  assert.equal(runtime.getError(), undefined);
+  const inherited = runtime.getModel("runtime-fixture", "inherited-model");
+  assert.ok(inherited);
+  assert.equal(inherited.api, "openai-completions");
+  assert.equal(inherited.reasoning, true);
+  assert.equal(inherited.maxTokens, 8192);
+  const override = runtime.getModel("runtime-fixture", "override-model");
+  assert.ok(override);
+  assert.equal(override.api, "openai-responses");
+  assert.equal(override.baseUrl, "http://127.0.0.1:9/model-specific/v1");
+  assert.deepEqual(override.input, ["text", "image"]);
+  assert.equal(override.contextWindow, 64000);
+});

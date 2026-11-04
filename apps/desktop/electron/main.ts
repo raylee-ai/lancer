@@ -17,6 +17,7 @@ import {
   type MessageBoxOptions,
 } from "electron";
 import { isValidHttpBaseUrl } from "@lancer/pi-sdk-driver";
+import { normalizeAnthropicBaseUrl } from "@lancer/pi-sdk-driver/custom-provider-types";
 import { createRequire } from "node:module";
 import { randomUUID } from "node:crypto";
 import type {
@@ -1726,7 +1727,15 @@ async function probeCustomProviderModels(
     return { ok: false, error: "Base URL must start with http:// or https://" };
   }
   const api = input.api ?? "openai-completions";
-  const normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
+  let normalizedBaseUrl: string;
+  try {
+    normalizedBaseUrl =
+      api === "anthropic-messages"
+        ? normalizeAnthropicBaseUrl(baseUrl)
+        : baseUrl.replace(/\/+$/, "");
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
   const target =
     api === "anthropic-messages" ? `${normalizedBaseUrl}/v1/models` : `${normalizedBaseUrl}/models`;
   const apiKey = input.apiKey?.trim();

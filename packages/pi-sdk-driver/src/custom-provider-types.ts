@@ -72,3 +72,15 @@ export function isValidHttpBaseUrl(value: string): boolean {
     return false;
   }
 }
+
+export function normalizeAnthropicBaseUrl(value: string): string {
+  const url = new URL(value.trim());
+  // The Anthropic SDK concatenates its /v1 paths to this root, including when
+  // the root already contains a gateway prefix. Query/fragment bases swallow
+  // that path instead of addressing the messages endpoint.
+  if (url.href.includes("?") || url.href.includes("#")) {
+    throw new Error("Anthropic base URL must not contain a query string or fragment.");
+  }
+  url.pathname = url.pathname.replace(/\/+$/, "").replace(/\/v1$/, "");
+  return url.toString().replace(/\/+$/, "");
+}

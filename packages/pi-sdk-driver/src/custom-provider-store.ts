@@ -6,6 +6,7 @@ import {
   CUSTOM_PROVIDER_PLACEHOLDER_API_KEY,
   isValidHttpBaseUrl,
   isCustomProviderApi,
+  normalizeAnthropicBaseUrl,
   OPENAI_COMPLETIONS_API,
   PI_GUI_CUSTOM_PROVIDER_MARKER,
   type CustomProviderEntry,
@@ -121,6 +122,7 @@ function toProviderConfig(
   existing?: Record<string, unknown>,
 ): Record<string, unknown> {
   const trimmedKey = input.apiKey?.trim();
+  const api = input.api ?? existing?.api ?? OPENAI_COMPLETIONS_API;
   const existingModels = new Map<string, Record<string, unknown>>();
   if (Array.isArray(existing?.models)) {
     for (const model of existing.models) {
@@ -131,8 +133,9 @@ function toProviderConfig(
   }
   return {
     ...existing,
-    baseUrl: input.baseUrl,
-    api: input.api ?? existing?.api ?? OPENAI_COMPLETIONS_API,
+    baseUrl:
+      api === "anthropic-messages" ? normalizeAnthropicBaseUrl(input.baseUrl) : input.baseUrl,
+    api,
     apiKey: trimmedKey ? trimmedKey : CUSTOM_PROVIDER_PLACEHOLDER_API_KEY,
     [PI_GUI_CUSTOM_PROVIDER_MARKER]: true,
     models: input.models.map((model) => {

@@ -62,7 +62,12 @@ async function startModelListServer(statusCode: 200 | 404) {
   };
 }
 
-async function verifyProtocolFlow(protocol: Protocol, statusCode: 200 | 404 = 200) {
+async function verifyProtocolFlow(
+  protocol: Protocol,
+  statusCode: 200 | 404 = 200,
+  anthropicSuffix = "",
+  expectedPrefix = "",
+) {
   const modelServer = await startModelListServer(statusCode);
   let harness: Awaited<ReturnType<typeof launchDesktop>> | undefined;
   try {
@@ -86,10 +91,22 @@ async function verifyProtocolFlow(protocol: Protocol, statusCode: 200 | 404 = 20
     const dialog = window.getByTestId("custom-endpoint-dialog");
     const providerId = `fixture-${protocol}`;
     const baseUrl =
-      protocol === "anthropic-messages" ? modelServer.origin : `${modelServer.origin}/v1`;
+      protocol === "anthropic-messages"
+        ? `${modelServer.origin}${anthropicSuffix}`
+        : `${modelServer.origin}/v1`;
+    const savedBaseUrl =
+      protocol === "anthropic-messages" ? `${modelServer.origin}${expectedPrefix}` : baseUrl;
     const apiKey = "synthetic-protocol-fixture-key";
     await dialog.getByLabel("Provider ID").fill(providerId);
     await dialog.getByLabel("API protocol").selectOption(protocol);
+    if (protocol === "anthropic-messages" && statusCode === 200 && anthropicSuffix === "") {
+      for (const suffix of ["?route=fixture", "#fragment"]) {
+        await dialog.getByLabel("Base URL").fill(`${baseUrl}${suffix}`);
+        await dialog.getByRole("button", { name: "Detect models", exact: true }).click();
+        await expect(dialog).toContainText("must not contain a query string or fragment");
+        expect(modelServer.requests).toEqual([]);
+      }
+    }
     await dialog.getByLabel("Base URL").fill(baseUrl);
     await dialog.getByLabel("API key").fill(apiKey);
     await dialog.getByRole("button", { name: "Detect models", exact: true }).click();
@@ -107,7 +124,7 @@ async function verifyProtocolFlow(protocol: Protocol, statusCode: 200 | 404 = 20
     expect(modelServer.requests).toEqual([
       {
         method: "GET",
-        path: "/v1/models",
+        path: `${expectedPrefix}/v1/models`,
         authorization: protocol === "anthropic-messages" ? undefined : `Bearer ${apiKey}`,
         apiKey: protocol === "anthropic-messages" ? apiKey : undefined,
         anthropicVersion: protocol === "anthropic-messages" ? "2023-06-01" : undefined,
@@ -121,7 +138,7 @@ async function verifyProtocolFlow(protocol: Protocol, statusCode: 200 | 404 = 20
     };
     expect(saved.providers[providerId]).toMatchObject({
       api: protocol,
-      baseUrl,
+      baseUrl: savedBaseUrl,
       apiKey,
       models: [{ id: modelId }],
     });
@@ -134,7 +151,7 @@ async function verifyProtocolFlow(protocol: Protocol, statusCode: 200 | 404 = 20
     });
     await entryRow.getByRole("button", { name: "Edit", exact: true }).click();
     await expect(dialog.getByLabel("API protocol")).toHaveValue(protocol);
-    await expect(dialog.getByLabel("Base URL")).toHaveValue(baseUrl);
+    await expect(dialog.getByLabel("Base URL")).toHaveValue(savedBaseUrl);
     await expect(dialog.getByLabel(`Enable ${modelId}`, { exact: true })).toBeChecked();
   } finally {
     try {
@@ -148,6 +165,17 @@ async function verifyProtocolFlow(protocol: Protocol, statusCode: 200 | 404 = 20
 for (const protocol of PROTOCOLS) {
   test(`custom endpoint ${protocol} detects models and preserves its protocol when edited`, async () => {
     await verifyProtocolFlow(protocol);
+  });
+}
+
+for (const [suffix, prefix] of [
+  ["/", ""],
+  ["/v1", ""],
+  ["/v1/", ""],
+  ["/gateway/anthropic/v1/", "/gateway/anthropic"],
+]) {
+  test(`Anthropic ${suffix} uses the same root for discovery and saved inference`, async () => {
+    await verifyProtocolFlow("anthropic-messages", 200, suffix, prefix);
   });
 }
 
