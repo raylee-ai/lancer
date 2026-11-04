@@ -504,7 +504,12 @@ function createWindow(): BrowserWindow {
   window.once("ready-to-show", () => {
     if (!backgroundTestMode) {
       window.show();
+      return;
     }
+    // Background tests stay unfocused, but an unmapped X11 window never gives
+    // Chromium a compositor frame. Playwright's Page.captureScreenshot then
+    // waits until timeout. showInactive maps the window without focusing it.
+    if (process.platform === "linux") window.showInactive();
   });
   window.webContents.on("before-input-event", (event, input) => {
     if (input.type !== "keyDown") {
