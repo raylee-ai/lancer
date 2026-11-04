@@ -52,7 +52,7 @@ test("real models hand off a module conversation without losing its context", as
     expect(doctor.testMode).toBeNull();
     expect(doctor.testHooks).toBe(false);
     expect(doctor.visible).toBe(true);
-    await page.getByRole("button", { name: "论文查询", exact: true }).click();
+    await page.getByRole("button", { name: "Paper lookup", exact: true }).click();
     await openNewThread(page);
     await page
       .getByLabel("New thread prompt")

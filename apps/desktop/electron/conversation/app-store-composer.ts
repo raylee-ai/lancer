@@ -829,7 +829,7 @@ async function runComposerCommand(
 ): Promise<DesktopAppState | undefined> {
   const parsed = parseComposerCommand(commandText);
   if (!parsed) {
-    const message = incompleteComposerCommandMessage(commandText);
+    const message = incompleteComposerCommandMessage(commandText, process.platform);
     if (message) {
       return store.withSessionError(sessionRef, message);
     }

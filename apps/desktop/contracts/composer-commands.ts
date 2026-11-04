@@ -119,14 +119,30 @@ export function composerSubmitNeedsSenderView(
   if (runtimeCommand) {
     return runtimeCommand.source === "extension";
   }
-  return (
-    parseComposerCommand(trimmed) !== undefined ||
-    incompleteComposerCommandMessage(trimmed) !== undefined
-  );
+  return parseComposerCommand(trimmed) !== undefined || isIncompleteComposerCommand(trimmed);
 }
 
 function normalizeRuntimeCommandName(value: string): string {
   return value.trim().replace(/^\/+/, "");
+}
+
+function incompleteCommandMessageKey(value: string): MessageKey | undefined {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("/")) {
+    return undefined;
+  }
+
+  const [command] = trimmed.split(/\s+/);
+  return command ? INCOMPLETE_COMMAND_MESSAGE_KEYS[command] : undefined;
+}
+
+/**
+ * Platform-free form of {@link incompleteComposerCommandMessage}: the renderer
+ * only needs the yes/no answer for queue ordering, and it has no platform data
+ * of its own to pass.
+ */
+export function isIncompleteComposerCommand(value: string): boolean {
+  return incompleteCommandMessageKey(value) !== undefined;
 }
 
 export function formatSessionConfigStatus(config?: SessionConfig): string {
@@ -195,13 +211,24 @@ export function parseComposerCommand(value: string): ParsedComposerCommand | und
   return undefined;
 }
 
-export function incompleteComposerCommandMessage(value: string): string | undefined {
-  const trimmed = value.trim();
-  if (!trimmed.startsWith("/")) {
+/** Settings shortcut as users see it: macOS teaches the glyph name, Windows/Linux the key. */
+export function settingsShortcutLabel(platform: string): string {
+  return platform === "darwin" ? "Cmd+," : "Ctrl+,";
+}
+
+/**
+ * The `platform` argument is required on purpose: this hint names a real
+ * shortcut, and a silent fallback would teach `Ctrl+,` to a macOS user.
+ */
+export function incompleteComposerCommandMessage(
+  value: string,
+  platform: string,
+): string | undefined {
+  const key = incompleteCommandMessageKey(value);
+  if (!key) {
     return undefined;
   }
-
-  const [command] = trimmed.split(/\s+/);
-  const key = command ? INCOMPLETE_COMMAND_MESSAGE_KEYS[command] : undefined;
-  return key ? t(key) : undefined;
+  return key === "composer.incomplete.settings"
+    ? t(key, { shortcut: settingsShortcutLabel(platform) })
+    : t(key);
 }

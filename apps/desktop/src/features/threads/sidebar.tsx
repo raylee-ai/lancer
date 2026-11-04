@@ -37,7 +37,7 @@ import type {
   WorkspaceRecord,
   WorktreeRecord,
 } from "../../../contracts/desktop-state";
-import { t, type MessageKey } from "../../../contracts/i18n";
+import { t, tPlural, type MessageKey } from "../../../contracts/i18n";
 import {
   ArchiveIcon,
   CheckIcon,
@@ -721,16 +721,21 @@ export function Sidebar(props: SidebarProps) {
       {LANCER_PROTOTYPE_UI ? (
         <footer className="lancer-sidebar-status">
           <span>
-            {
-              LANCER_SESSION_ZONES.filter((zone) =>
+            {t("lancer.sidebar.taskLines", {
+              count: LANCER_SESSION_ZONES.filter((zone) =>
                 threadSidebarModel.recencyOrder.some(
                   (thread) => conversationZoneId(thread.session.title) === zone.id,
                 ),
-              ).length
-            }{" "}
-            条任务线
+              ).length,
+            })}
           </span>
-          <span>{threadSidebarModel.recencyOrder.length} 个会话</span>
+          <span>
+            {tPlural(
+              threadSidebarModel.recencyOrder.length,
+              "lancer.zone.sessionCountOne",
+              "lancer.zone.sessionCountMany",
+            )}
+          </span>
         </footer>
       ) : null}
     </aside>

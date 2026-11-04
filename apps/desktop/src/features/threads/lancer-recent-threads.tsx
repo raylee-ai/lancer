@@ -1,5 +1,6 @@
 import type { ThreadListEntry } from "./thread-groups";
 import { stripLancerZonePrefix } from "../../../contracts/lancer-zones";
+import { t } from "../../../contracts/i18n";
 import { ModelBrandIcon } from "../../ui/model-brand-icon";
 
 export function LancerRecentThreads({
@@ -9,9 +10,11 @@ export function LancerRecentThreads({
   readonly threads: readonly ThreadListEntry[];
   readonly onSelect: (target: { workspaceId: string; sessionId: string }) => void;
 }) {
+  const running = threads.filter((thread) => thread.session.status === "running").length;
+  const title = t("lancer.recent.title");
   return (
-    <footer className="lancer-recent-threads" aria-label="Recently here">
-      <span>RECENTLY HERE</span>
+    <footer className="lancer-recent-threads" aria-label={title}>
+      <span>{title}</span>
       <div className="lancer-recent-threads__items">
         {threads.slice(0, 8).map((thread) => (
           <button
@@ -31,10 +34,7 @@ export function LancerRecentThreads({
           </button>
         ))}
       </div>
-      <small>
-        {threads.filter((thread) => thread.session.status === "running").length} 运行中 ·{" "}
-        {threads.length} 个会话
-      </small>
+      <small>{t("lancer.recent.summary", { running, count: threads.length })}</small>
     </footer>
   );
 }

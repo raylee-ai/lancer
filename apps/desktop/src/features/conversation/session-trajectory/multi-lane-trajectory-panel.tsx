@@ -16,7 +16,12 @@ export interface TrajectoryHandoffEdge {
   readonly label?: string;
 }
 
-import { TRAJECTORY_EVENTS, trajectoryEvent, trajectoryCaption } from "./trajectory-events";
+import {
+  TRAJECTORY_EVENTS,
+  trajectoryCaption,
+  trajectoryEvent,
+  trajectoryEventLabel,
+} from "./trajectory-events";
 
 type EdgePath = { readonly edge: TrajectoryHandoffEdge; readonly d: string };
 
@@ -198,7 +203,7 @@ export function MultiLaneTrajectoryPanel({
                 className={`trajectory-event-glyph trajectory-event-glyph--${item.key}`}
                 aria-hidden="true"
               />
-              {item.label}
+              {trajectoryEventLabel(item.key)}
             </span>
           ))}
         </div>

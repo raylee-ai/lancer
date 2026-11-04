@@ -13,7 +13,11 @@ import { ImageAttachmentThumb } from "../image-attachment-thumb";
 import type { ThreadListEntry } from "../../threads/thread-groups";
 import type { useSessionTrajectory } from "../session-trajectory/use-session-trajectory";
 import { trajectoryEvent } from "../session-trajectory/trajectory-events";
-import { conversationZoneId, stripLancerZonePrefix } from "../../../../contracts/lancer-zones";
+import {
+  conversationZoneId,
+  lancerZoneLabel,
+  stripLancerZonePrefix,
+} from "../../../../contracts/lancer-zones";
 import { REPLAY_FIXTURE } from "./replay-fixture";
 import { buildRelayTree } from "./relay-tree";
 import type { LancerAssistantsState } from "../../../../contracts/lancer-assistants";
@@ -27,7 +31,7 @@ import type {
   ProcessMessage,
   ProcessStepData,
 } from "./process-types";
-import { t } from "../../../../contracts/i18n";
+import { t, tPlural } from "../../../../contracts/i18n";
 import type { VideoLearnSnapshot } from "../../../../contracts/video-learn";
 import { videoLearnProcessEvents, videoLearnProcessMessages } from "../video-learn-stages";
 import { TurnChangesCard, type OpenTurnChange } from "../turn-changes-card";
@@ -129,9 +133,9 @@ export function buildLiveProcessData(input: LiveProcessInput): {
         ),
     );
     return {
-      name: lane.label,
+      name: lancerZoneLabel(lane),
       id: lane.id,
-      count: `${threads.length} 个会话`,
+      count: tPlural(threads.length, "lancer.zone.sessionCountOne", "lancer.zone.sessionCountMany"),
       sessions: threads.map((thread) => ({
         id: `${thread.workspaceId}:${thread.session.id}`,
         sessionId: thread.session.id,
@@ -533,8 +537,8 @@ export function buildLiveProcessData(input: LiveProcessInput): {
     },
     {
       id: "selected-model",
-      name: input.modelId ?? "未选择模型",
-      short: input.modelId ?? "未选择模型",
+      name: input.modelId ?? t("lancer.modelReel.aria"),
+      short: input.modelId ?? t("lancer.modelReel.aria"),
       icon:
         REPLAY_FIXTURE.actors.find((actor) => actor.id === liveActor(input.provider, input.modelId))
           ?.icon ?? "openai",
@@ -544,7 +548,15 @@ export function buildLiveProcessData(input: LiveProcessInput): {
     lane: current,
     data: {
       videoDeliverables: deliveries,
-      laneSummary: `${represented.filter((lane) => !input.children?.some((child) => child.childSessionId === lane.sessionId)).length} 个会话 · ${input.children?.filter((child) => represented.some((lane) => lane.sessionId === child.childSessionId)).length ?? 0} 条分支`,
+      laneSummary: t("lancer.process.laneSummary", {
+        sessions: represented.filter(
+          (lane) => !input.children?.some((child) => child.childSessionId === lane.sessionId),
+        ).length,
+        branches:
+          input.children?.filter((child) =>
+            represented.some((lane) => lane.sessionId === child.childSessionId),
+          ).length ?? 0,
+      }),
       assistants: input.assistants,
       archivedSessions: input.archivedSessions,
       sidebarCollapsed: input.sidebarCollapsed,

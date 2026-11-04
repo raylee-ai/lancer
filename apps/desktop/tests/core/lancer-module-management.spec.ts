@@ -58,7 +58,7 @@ test("manage module templates, retain conversations on deletion and restore afte
     await page.getByRole("button", { name: "确认删除模块", exact: true }).click();
     await expect(page.getByRole("button", { name: "体验研究", exact: true })).toHaveCount(0);
     await expect(page.getByTestId("module-workflow")).toHaveCount(0);
-    await page.getByRole("button", { name: "常态会话", exact: true }).click();
+    await page.getByRole("button", { name: "Standard chat", exact: true }).click();
     expect(
       (await getDesktopState(page)).workspaces
         .flatMap((w) => w.sessions)

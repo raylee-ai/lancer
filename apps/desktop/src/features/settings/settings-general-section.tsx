@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { RuntimeSnapshot } from "@lancer/session-driver/runtime-types";
 import type { LanguagePreference, ModelSettingsScopeMode } from "../../../contracts/desktop-state";
 import { t } from "../../../contracts/i18n";
+import { defaultTerminalShell } from "../../../contracts/terminal-model";
 import { SettingsSegmented, SettingsSwitch } from "./settings-controls";
 import { SettingsGroup, SettingsRow } from "./settings-utils";
 
@@ -107,7 +108,7 @@ export function SettingsGeneralSection({
           <input
             aria-label={t("generalSettings.shellAriaLabel")}
             className="settings-text-input"
-            placeholder="/bin/zsh"
+            placeholder={defaultTerminalShell(window.piApp?.platform ?? "linux")}
             spellCheck={false}
             type="text"
             value={terminalShellDraft}

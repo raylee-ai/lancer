@@ -1,6 +1,10 @@
 import { expect, test } from "@playwright/test";
 import type { RuntimeCommandRecord } from "@lancer/session-driver/runtime-types";
-import { composerSubmitNeedsSenderView } from "../../contracts/composer-commands";
+import {
+  composerSubmitNeedsSenderView,
+  incompleteComposerCommandMessage,
+  isIncompleteComposerCommand,
+} from "../../contracts/composer-commands";
 
 function command(name: string, source: RuntimeCommandRecord["source"]): RuntimeCommandRecord {
   return {
@@ -35,4 +39,21 @@ test("extension and local commands keep the serialized sender view", () => {
 test("slash text stays serialized until the session's commands are known", () => {
   expect(composerSubmitNeedsSenderView("/skill:review", undefined, undefined)).toBe(true);
   expect(composerSubmitNeedsSenderView("plain text", undefined, undefined)).toBe(false);
+});
+
+test("incomplete commands are detected without any platform data", () => {
+  expect(isIncompleteComposerCommand("/model")).toBe(true);
+  expect(isIncompleteComposerCommand("  /settings  ")).toBe(true);
+  expect(isIncompleteComposerCommand("/model gpt-5")).toBe(true);
+  expect(isIncompleteComposerCommand("/unknown")).toBe(false);
+  expect(isIncompleteComposerCommand("plain text")).toBe(false);
+  expect(isIncompleteComposerCommand("/")).toBe(false);
+});
+
+test("the settings hint teaches the platform's real shortcut", () => {
+  expect(incompleteComposerCommandMessage("/settings", "darwin")).toContain("Cmd+,");
+  expect(incompleteComposerCommandMessage("/settings", "win32")).toContain("Ctrl+,");
+  expect(incompleteComposerCommandMessage("/settings", "linux")).toContain("Ctrl+,");
+  expect(incompleteComposerCommandMessage("/unknown", "darwin")).toBeUndefined();
+  expect(incompleteComposerCommandMessage("plain text", "darwin")).toBeUndefined();
 });

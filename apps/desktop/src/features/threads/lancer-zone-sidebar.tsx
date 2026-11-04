@@ -2,6 +2,7 @@ import type { SessionRecord } from "../../../contracts/desktop-state";
 import {
   LANCER_SESSION_ZONES,
   conversationZoneId,
+  lancerZoneLabel,
   stripLancerZonePrefix,
 } from "../../../contracts/lancer-zones";
 import { tPlural } from "../../../contracts/i18n";
@@ -28,7 +29,7 @@ export function buildZoneThreadGroups(threads: readonly ThreadListEntry[]): read
   }
   return LANCER_SESSION_ZONES.map((zone) => ({
     zoneId: zone.id,
-    label: zone.label,
+    label: lancerZoneLabel(zone),
     color: zone.color,
     threads: byZone.get(zone.id) ?? [],
   }));

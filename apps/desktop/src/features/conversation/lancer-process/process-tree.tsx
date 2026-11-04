@@ -15,6 +15,7 @@ import { ProcessActorIcon, ProcessGlyph, useProcessData } from "./process-glyph"
 import type { ProcessEvent, ProcessSurfaceActions, ProcessViewState } from "./process-types";
 import { laneStyle } from "./process-types";
 import { cubicPath, processTreeRoutes } from "./process-curve-routes";
+import { t } from "../../../../contracts/i18n";
 
 export function ProcessLaneHeads({
   state,
@@ -116,14 +117,14 @@ export function ProcessLaneHeads({
                     : current.unverified
                       ? "未验证"
                       : current.running
-                        ? "运行中"
+                        ? t("lancer.process.running")
                         : waiting
-                          ? "⏸ 等待你确认"
+                          ? t("lancer.process.waiting")
                           : next
                             ? `${events.filter((event) => event.time <= state.time).length}/${events.length} · ${EVENT_NAMES[next.kind]}`
                             : current?.fail
-                              ? "✕ 失败"
-                              : "✓ 完成"))}
+                              ? t("lancer.process.failed")
+                              : t("lancer.process.done")))}
             </span>
           </button>
         );
@@ -133,26 +134,26 @@ export function ProcessLaneHeads({
 }
 export function ProcessLegend() {
   const legend = [
-    ["commit", "提交/保存"],
-    ["handoff", "交接 · 无损"],
-    ["checkpoint", "检查点"],
-    ["test", "测试 ✓"],
-    ["test-fail", "测试 ✕"],
-    ["review", "审查通过"],
-    ["fork", "分叉"],
-    ["merge", "合并"],
-    ["artifact", "产物"],
-    ["tool", "工具调用"],
-    ["switch", "模型切换"],
-    ["compact", "上下文压缩"],
-    ["wait", "等待你"],
-    ["xref", "跨线引用"],
-    ["error", "错误"],
-    ["retry", "重试"],
+    ["commit", t("lancer.trajectory.submit")],
+    ["handoff", t("lancer.trajectory.handoff")],
+    ["checkpoint", t("lancer.trajectory.checkpoint")],
+    ["test", t("lancer.trajectory.test")],
+    ["test-fail", t("lancer.trajectory.testFail")],
+    ["review", t("lancer.trajectory.review")],
+    ["fork", t("lancer.trajectory.fork")],
+    ["merge", t("lancer.trajectory.merge")],
+    ["artifact", t("lancer.trajectory.artifact")],
+    ["tool", t("lancer.trajectory.tool")],
+    ["switch", t("lancer.trajectory.model")],
+    ["compact", t("lancer.trajectory.compact")],
+    ["wait", t("lancer.trajectory.wait")],
+    ["xref", t("lancer.trajectory.xref")],
+    ["error", t("lancer.trajectory.error")],
+    ["retry", t("lancer.trajectory.retry")],
   ] as const;
   return (
     <footer className="lgd">
-      <div className="h">图例 · 轨迹事件</div>
+      <div className="h">{t("lancer.trajectory.legendTitle")}</div>
       {legend.map(([kind, label]) => (
         <span key={kind} className="li" data-testid="process-legend-item">
           <span className="w">

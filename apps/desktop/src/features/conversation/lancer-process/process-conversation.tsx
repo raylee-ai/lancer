@@ -8,6 +8,7 @@ import "./conversation-layout.css";
 import { useProcessData } from "./process-glyph";
 import type { ProcessSurfaceActions, ProcessViewState } from "./process-types";
 import { visibleProcessMessages } from "./visible-process-messages";
+import { t } from "../../../../contracts/i18n";
 
 export function ProcessConversation({
   state,
@@ -81,7 +82,9 @@ export function ProcessConversation({
           {state.lane === "all" ? (
             <>
               <b>全部会话</b>
-              <span className="mu">· 交错显示 {data.lanes.length} 个会话的事件</span>
+              <span className="mu">
+                {t("lancer.process.interleaved", { count: data.lanes.length })}
+              </span>
               <span className="smp">点任一行展开过程</span>
             </>
           ) : (

@@ -271,7 +271,12 @@ export default function(pi) {
     expect((await getDesktopState(restarted)).orchestrationChildren.map((c) => c.id)).toEqual(
       before.orchestrationChildren.map((c) => c.id),
     );
-    for (const module of ["视频复刻", "竞品调研", "论文查询", "GitHub 研究"]) {
+    for (const module of [
+      "Video re-creation",
+      "Competitor research",
+      "Paper lookup",
+      "GitHub research",
+    ]) {
       await restarted.getByRole("button", { name: module, exact: true }).click();
       await openNewThread(restarted);
       await restarted.getByLabel("New thread prompt").fill(`${module}验收`);
@@ -279,7 +284,7 @@ export default function(pi) {
       await expect(restarted.locator(".process-assistant").last()).toContainText("SAVED_REPLY");
     }
     await expect(restarted.locator(".lhc")).toHaveCount(7);
-    await expect(restarted.locator(".rh")).toContainText("5 个会话 · 2 条分支");
+    await expect(restarted.locator(".rh")).toContainText("5 sessions · 2 branches");
     const currentLane = await restarted.locator('.lhc[data-current="true"]').getAttribute("data-l");
     await expect(
       restarted.locator(`[data-event-lane="${currentLane}"][data-event-type="commit"]`).last(),

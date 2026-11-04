@@ -13,6 +13,7 @@ import {
 import { AssistantItem } from "./assistant-item";
 import { AssistantEditor } from "./assistant-editor";
 import { conversationZoneId, stripLancerZonePrefix } from "../../../../contracts/lancer-zones";
+import { t } from "../../../../contracts/i18n";
 import type { ThreadMenuState } from "../../threads/hooks/use-thread-actions";
 import type { ThreadListEntry } from "../../threads/thread-groups";
 import { ShellSessionRow } from "./shell-session-row";
@@ -38,17 +39,22 @@ import { useThreadShortcutHintsVisible } from "../../threads/thread-shortcut-hin
 const SIDEBAR_WIDTH_RANGE = { min: 200, max: 520 };
 import "./assistants.css";
 
-function ShellModuleIcon({ name }: { readonly name: string }) {
+function ShellModuleIcon({ id, name }: { readonly id?: string; readonly name: string }) {
+  // Preset modules render a localized name, so the icon keys off the stable id
+  // and only falls back to the saved name for user-defined modules.
+  const isVideo = id === "video" || name.includes("视频");
+  const isResearch = id === "research" || name.includes("调研");
+  const isXhs = id === "xhs" || name.includes("小红书");
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.5">
-      {name.includes("视频") ? (
+      {isVideo ? (
         <path d="M3 6h12v12H3zM15 10l6-3v10l-6-3" />
-      ) : name.includes("调研") ? (
+      ) : isResearch ? (
         <>
           <circle cx="11" cy="11" r="7" />
           <path d="M20 20l-4-4" />
         </>
-      ) : name.includes("小红书") ? (
+      ) : isXhs ? (
         <>
           <rect x="4" y="3" width="16" height="18" rx="3" />
           <path d="M8 8h8M8 12h8M8 16h5" />
@@ -110,6 +116,7 @@ export function ProcessSidebar({
     data.sidebar.find((group) => group.id === "chat")?.name ??
     data.sidebar[0]?.name;
   const group = data.sidebar.find((entry) => entry.name === groupName);
+  const chatName = data.sidebar.find((entry) => entry.id === "chat")?.name ?? t("lancer.zone.chat");
   if (threadShortcutOrderRef) {
     threadShortcutOrderRef.current = (group?.sessions ?? []).flatMap((session) => {
       const entry = threads.find((thread) => thread.session.id === session.sessionId);
@@ -155,23 +162,24 @@ export function ProcessSidebar({
         onReset={() => setSidebarWidth(undefined)}
       />
       <div className="shell-sidebar__brand">
-        <img src={lancerMark} alt="Lancer 图标" />
+        <img src={lancerMark} alt="Lancer" />
         Lancer
       </div>
-      <nav className="shell-sidebar__modules" aria-label="常态会话">
+      <nav className="shell-sidebar__modules" aria-label={chatName}>
         <button
           type="button"
-          aria-label="常态会话"
+          aria-label={chatName}
           aria-pressed={group?.id === "chat"}
           onClick={() => {
             const chat = data.sidebar.find((g) => g.id === "chat");
-            setBrowsedGroup(chat?.name ?? "常态会话");
+            setBrowsedGroup(chat?.name ?? chatName);
             if (chat?.sessions[0]) actions.onSelectSession(chat.sessions[0].id);
             else actions.onNewThread?.("chat");
           }}
         >
-          <ShellModuleIcon name="常态会话" />
-          常态会话<small>{data.sidebar.find((g) => g.id === "chat")?.sessions.length ?? 0}</small>
+          <ShellModuleIcon id="chat" name={chatName} />
+          {chatName}
+          <small>{data.sidebar.find((g) => g.id === "chat")?.sessions.length ?? 0}</small>
         </button>
       </nav>
       <div className="shell-sidebar__section-title">
@@ -229,7 +237,7 @@ export function ProcessSidebar({
                 }}
               >
                 <span style={{ color: assistants.modules?.find((m) => m.id === entry.id)?.color }}>
-                  <ShellModuleIcon name={entry.name} />
+                  <ShellModuleIcon id={entry.id} name={entry.name} />
                 </span>
                 {entry.name}
                 <small title="会话">{entry.sessions.length}</small>
@@ -361,15 +369,21 @@ export function ProcessSidebar({
         </SortableContext>
       </DndContext>
       <footer className="ft shell-sidebar__footer">
-        <img className="shell-sidebar__local" src={lancerMark} alt="Lancer 图标" />
+        <img className="shell-sidebar__local" src={lancerMark} alt="Lancer" />
         <span>
-          本地工作区
+          {t("lancer.process.localWorkspace")}
           <small>
-            {data.sidebar.filter((g) => g.id !== "chat").length} 个模块 ·{" "}
-            {data.sidebar.reduce((n, entry) => n + entry.sessions.length, 0)} 个会话
+            {t("lancer.process.moduleSummary", {
+              modules: data.sidebar.filter((g) => g.id !== "chat").length,
+              sessions: data.sidebar.reduce((n, entry) => n + entry.sessions.length, 0),
+            })}
           </small>
         </span>
-        <button type="button" aria-label="工作区工具" onClick={actions.onOpenTools}>
+        <button
+          type="button"
+          aria-label={t("workbench.workspaceTools")}
+          onClick={actions.onOpenTools}
+        >
           <SettingsIcon />
         </button>
       </footer>
