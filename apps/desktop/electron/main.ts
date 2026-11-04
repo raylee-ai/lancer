@@ -33,6 +33,7 @@ import { augmentPosixPath } from "../scripts/augment-path.cjs";
 import { DesktopAppStore } from "./application/app-store";
 import { revealInFolder } from "./platform/reveal-in-folder";
 import { WindowOwner } from "./windows/window-owner";
+import { reopenWorkspaceWindow } from "./windows/window-reopen";
 import { createPiOrbWindow } from "./windows/pi-orb-window";
 import { ControlService } from "./control/control-service";
 import { ControlServer } from "./control/control-server";
@@ -908,21 +909,6 @@ if (!hasSingleInstanceLock) {
   app.exit(0);
 }
 
-app.on("second-instance", () => {
-  void applicationReady
-    .then(() => {
-      const window = windowOwner.foreground() ?? createAppWindow();
-      if (window.isMinimized()) {
-        window.restore();
-      }
-      window.show();
-      window.focus();
-    })
-    .catch((error: unknown) => {
-      console.error("[main] Could not reopen application window", error);
-    });
-});
-
 const applicationReady = app
   .whenReady()
   .then(async () => {
@@ -1345,6 +1331,18 @@ const applicationReady = app
     console.error("[main] Application startup failed", error);
     app.exit(1);
   });
+
+// Install only after the readiness promise exists; early second instances wait
+// for the store and initial workspace, not just Electron's ready event.
+app.on("second-instance", () => {
+  void reopenWorkspaceWindow(
+    applicationReady,
+    () => windowOwner.foreground(),
+    createAppWindow,
+  ).catch((error: unknown) => {
+    console.error("[main] Could not reopen application window", error);
+  });
+});
 
 app.on("window-all-closed", () => {
   // macOS normally keeps the app alive after its final window closes. The
