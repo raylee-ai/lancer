@@ -33,6 +33,26 @@ import { videoLearnProcessEvents, videoLearnProcessMessages } from "../video-lea
 import { TurnChangesCard, type OpenTurnChange } from "../turn-changes-card";
 import type { TurnChangeSummary } from "../../../../contracts/review";
 
+/** Settled video-learn results. Plain session history stays "已结束" until a run
+ * outcome is recorded; these statuses are that outcome for the learn pipeline. */
+const VIDEO_LEARN_SUCCESS = new Set<VideoLearnSnapshot["guiStatus"]>([
+  "ANALYZED",
+  "HANDED_OFF",
+  "LEARNED",
+  "REMAKE_SKIPPED",
+]);
+
+function withVideoLearnOutcome(recorded: string, videoLearn: VideoLearnSnapshot | null): string {
+  if (
+    videoLearn &&
+    !videoLearn.busy &&
+    (recorded === "已结束" || recorded === "待开始") &&
+    VIDEO_LEARN_SUCCESS.has(videoLearn.guiStatus)
+  )
+    return "完成";
+  return recorded;
+}
+
 export function liveActor(provider?: string, model?: string): string {
   const key = `${provider} ${model}`.toLowerCase();
   if (/anthropic|claude|opus/.test(key)) return "opus";
@@ -562,9 +582,12 @@ export function buildLiveProcessData(input: LiveProcessInput): {
                   input.threads.find((thread) => thread.session.id === lane.sessionId)?.session
                     .status === "failed"
                 ? "失败"
-                : sessionRunLabel(
-                    input.threads.find((thread) => thread.session.id === lane.sessionId)?.session,
-                    events.some((event) => event.lane === lane.id),
+                : withVideoLearnOutcome(
+                    sessionRunLabel(
+                      input.threads.find((thread) => thread.session.id === lane.sessionId)?.session,
+                      events.some((event) => event.lane === lane.id),
+                    ),
+                    lane.id === current ? videoLearn : null,
                   ),
         relay: [],
         available: true,
