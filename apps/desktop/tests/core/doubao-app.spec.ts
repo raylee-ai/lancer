@@ -12,8 +12,6 @@ import {
 } from "../helpers/electron-app";
 
 test("Doubao App binds without a Pi model and keeps a fixed conversation across mode changes", async () => {
-  // The MP4 export assertion already waits 60s, so the test budget has to cover that wait.
-  test.setTimeout(180_000);
   const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("doubao-ui");
   const agentDir = join(userDataDir, "agent");

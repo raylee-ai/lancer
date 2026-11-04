@@ -30,6 +30,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { augmentPosixPath } from "../scripts/augment-path.cjs";
 import { DesktopAppStore } from "./application/app-store";
+import { revealInFolder } from "./platform/reveal-in-folder";
 import { WindowOwner } from "./windows/window-owner";
 import { createPiOrbWindow } from "./windows/pi-orb-window";
 import { ControlService } from "./control/control-service";
@@ -1298,7 +1299,7 @@ app
         readWorkspaceFile,
         revealWorkspaceFile: async (workspacePath, filePath) => {
           const resolved = await resolveExistingWorkspacePath(workspacePath, filePath);
-          shell.showItemInFolder(resolved);
+          revealInFolder(resolved);
         },
         getChangedFiles,
         getFileDiff,
