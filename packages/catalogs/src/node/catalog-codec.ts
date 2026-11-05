@@ -114,6 +114,9 @@ export function isSessionEntry(value: unknown): value is SessionCatalogEntry {
         Number.isFinite(value.progress) &&
         value.progress >= 0 &&
         value.progress <= 1)) &&
+    ["worktreePath", "worktreeBranch", "worktreeBaseBranch", "worktreeBaseSha"].every(
+      (key) => value[key] === undefined || value[key] === null || typeof value[key] === "string",
+    ) &&
     isRecord(value.sessionRef) &&
     hasStrings(value.sessionRef, ["workspaceId", "sessionId"]) &&
     value.sessionRef.workspaceId === value.workspaceId &&

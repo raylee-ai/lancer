@@ -194,6 +194,15 @@ function buildSessionRecord(
       transcript,
     ),
     config: sessionConfigBySession.get(key),
+    ...(session.worktreePath && session.worktreeBranch
+      ? {
+          worktree: {
+            path: session.worktreePath,
+            branch: session.worktreeBranch,
+            baseBranch: session.worktreeBaseBranch ?? "",
+          },
+        }
+      : {}),
   };
 }
 

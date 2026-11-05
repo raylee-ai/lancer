@@ -103,6 +103,10 @@ test("new operations and old commands preserve wire payloads", async (t) => {
       { operation: "new", cwd: process.cwd(), group: "g", message: "hello" },
     ],
     [
+      ["new", "--cwd", ".", "--worktree", "hello"],
+      { operation: "new", cwd: process.cwd(), worktree: true, message: "hello" },
+    ],
+    [
       ["send", "s", "--mode", "queue", "hello"],
       { operation: "send", session: "s", message: "hello", mode: "queue" },
     ],

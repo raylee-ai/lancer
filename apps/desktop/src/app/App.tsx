@@ -991,6 +991,7 @@ export default function App() {
           />
         ) : null}
         <ComposerPanel
+          workspaceId={selectedWorkspace?.id}
           workspacePath={selectedWorkspace?.path}
           onOpenDeliverable={handleOpenDeliverable}
           onSelectDoubaoApp={selectDoubao}

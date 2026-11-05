@@ -20,8 +20,9 @@ const usage = `Usage:
   lancer-ctl tail <id|title> [-n 20] [--json]
   lancer-ctl wait <id|title> [--timeout seconds]
   lancer-ctl new --draft --cwd path --zone video --name "待办 · 下载视频"
-  lancer-ctl new --cwd path [--zone video|research|lancer|xhs] [--model provider/id] [--name title] "message"
+  lancer-ctl new --cwd path [--zone video|research|lancer|xhs] [--model provider/id] [--name title] [--worktree] "message"
 new also accepts --group id --orchestrator id --role lead|lane.
+--worktree gives the new session its own git worktree and lancer/<session-id> branch when --cwd is inside a repository. Non-git directories keep the existing workspace behavior.
 All commands accept --user-data-dir path (or LANCER_USER_DATA_DIR).
 Requires a running Lancer with Settings > General > Allow local control API enabled.`;
 
@@ -40,6 +41,10 @@ function parse(args) {
     }
     if (arg === "--draft") {
       options.draft = true;
+      continue;
+    }
+    if (arg === "--worktree") {
+      options.worktree = true;
       continue;
     }
     if (arg === "--json") {
@@ -82,7 +87,18 @@ async function main() {
     send: ["mode", "file"],
     tail: ["n", "json"],
     wait: ["timeout"],
-    new: ["cwd", "zone", "model", "name", "file", "draft", "group", "orchestrator", "role"],
+    new: [
+      "cwd",
+      "zone",
+      "model",
+      "name",
+      "file",
+      "draft",
+      "group",
+      "orchestrator",
+      "role",
+      "worktree",
+    ],
     lanes: ["group", "json"],
     logs: ["since", "json"],
     stream: ["since"],
@@ -257,6 +273,7 @@ async function main() {
       group: options.group,
       orchestrator: options.orchestrator,
       role: options.role,
+      ...(options.worktree ? { worktree: true } : {}),
     });
   }
   if (options.since !== undefined) {

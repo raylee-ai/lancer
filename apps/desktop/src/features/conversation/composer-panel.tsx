@@ -28,11 +28,13 @@ import type {
   ModelOnboardingSettingsSection,
 } from "../settings/model-onboarding";
 import { ContextMeter } from "./context-meter";
+import { SessionWorktreeBar } from "./session-worktree-bar";
 import { ModelSelector } from "./model-selector";
 import type { ExtensionDockModel } from "../extensions/extension-session-ui";
 import { t } from "../../../contracts/i18n";
 
 interface ComposerPanelProps {
+  readonly workspaceId?: string;
   readonly workspacePath?: string;
   readonly onOpenDeliverable?: (path: string) => Promise<void>;
   readonly onSelectDoubaoApp?: () => void;
@@ -94,6 +96,7 @@ interface ComposerPanelProps {
 }
 
 export function ComposerPanel({
+  workspaceId,
   workspacePath,
   onOpenDeliverable,
   onSelectDoubaoApp,
@@ -153,12 +156,16 @@ export function ComposerPanel({
   const hasComposerInput = composerDraft.trim().length > 0 || attachments.length > 0;
   const primaryActionIsStop = selectedSession.status === "running" && !hasComposerInput;
 
+  const desktopApi = typeof window === "undefined" ? undefined : window.piApp;
   return (
     <footer
       className="composer"
       aria-busy={preparingTaskDraft}
       data-composer-ready={preparingTaskDraft || !sendReady ? "false" : "true"}
     >
+      {workspaceId && desktopApi ? (
+        <SessionWorktreeBar api={desktopApi} workspaceId={workspaceId} session={selectedSession} />
+      ) : null}
       {/* The inert copy of Stop stays out of the accessibility tree. The button
           below the fold is the one that can actually stop while a task draft is saved. */}
       <div

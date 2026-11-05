@@ -32,6 +32,20 @@ export const threadsMessages = defineMessages(
     "threads.newThread.promptPlaceholder": "Ask Lancer anything, use / for commands and skills",
     "threads.newThread.local": "Local",
     "threads.newThread.worktree": "Worktree",
+    "threads.newThread.isolate": "Own worktree",
+    "threads.newThread.isolateHint":
+      "Give this session its own git branch and worktree so parallel sessions do not share files. Ignored when the folder is not a git repository.",
+    "threads.worktree.diff": "View diff",
+    "threads.worktree.merge": "Merge into {branch}",
+    "threads.worktree.discard": "Discard worktree",
+    "threads.worktree.close": "Close",
+    "threads.worktree.noChanges": "No changes yet.",
+    "threads.worktree.truncated": "The diff was truncated.",
+    "threads.worktree.mergeConfirm":
+      "Merge {branch} into {base}? Uncommitted worktree edits are committed on the session branch first. The workspace checkout must be clean.",
+    "threads.worktree.discardConfirm":
+      "Discard {branch} and delete its worktree? The conversation stays. Later turns run in the workspace folder.",
+    "threads.worktree.detached": "the current branch",
     "threads.newThread.attachFiles": "Attach files",
     "threads.newThread.start": "Start thread",
     "threads.newThread.treeUnavailable": "/tree is only available inside an existing session.",
@@ -110,6 +124,20 @@ export const threadsMessages = defineMessages(
     "threads.newThread.promptPlaceholder": "向 Lancer 提问，输入 / 使用命令和技能",
     "threads.newThread.local": "本地",
     "threads.newThread.worktree": "工作树",
+    "threads.newThread.isolate": "独立工作树",
+    "threads.newThread.isolateHint":
+      "为这个会话创建独立的 Git 分支和工作树，并行会话互不改同一份文件。文件夹不是 Git 仓库时保持原有行为。",
+    "threads.worktree.diff": "查看 diff",
+    "threads.worktree.merge": "合回 {branch}",
+    "threads.worktree.discard": "丢弃工作树",
+    "threads.worktree.close": "关闭",
+    "threads.worktree.noChanges": "还没有改动。",
+    "threads.worktree.truncated": "diff 已截断。",
+    "threads.worktree.mergeConfirm":
+      "要把 {branch} 合并进 {base} 吗？工作树里未提交的修改会先提交到会话分支。工作区检出必须是干净的。",
+    "threads.worktree.discardConfirm":
+      "要丢弃 {branch} 并删除它的工作树吗？会话记录会保留。之后的回合在工作区目录里执行。",
+    "threads.worktree.detached": "当前分支",
     "threads.newThread.attachFiles": "添加附件",
     "threads.newThread.start": "开始会话",
     "threads.newThread.treeUnavailable": "/tree 仅可在已有会话中使用。",

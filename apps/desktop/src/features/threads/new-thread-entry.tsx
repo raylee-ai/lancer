@@ -25,6 +25,7 @@ export function NewThreadEntry({
       selectedWorkspaceId={controller.rootWorkspaceId || workspaces[0]?.id || ""}
       runtime={controller.runtime}
       environment={controller.environment}
+      useWorktree={controller.useWorktree}
       prompt={controller.prompt}
       attachments={controller.attachments}
       lastError={controller.composerError || error || undefined}
@@ -49,6 +50,7 @@ export function NewThreadEntry({
       selectedMentionIndex={controller.mentionMenu.selectedIndex}
       onChangePrompt={controller.setPrompt}
       onSelectEnvironment={controller.setEnvironment}
+      onToggleWorktree={controller.setUseWorktree}
       onSelectWorkspace={controller.selectWorkspace}
       onSetModel={(provider, modelId) => {
         controller.setProvider(provider);

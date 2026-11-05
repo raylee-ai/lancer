@@ -237,6 +237,31 @@ interface PromptTemplateAdapter {
 
 const NEW_THREAD_PLACEHOLDER_TITLE = "New thread";
 
+function allocatedSessionIdOf(manager: SessionManager): string | undefined {
+  const candidate = manager as SessionManager & {
+    getSessionId?: () => string | undefined;
+  };
+  try {
+    const id = candidate.getSessionId?.();
+    return typeof id === "string" && id.trim() ? id.trim() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function executionCwdForCatalogEntry(entry: {
+  readonly worktreePath?: string | null;
+}): Promise<string | undefined> {
+  const path = entry.worktreePath;
+  if (typeof path !== "string" || !path.trim()) return undefined;
+  try {
+    const info = await stat(path);
+    return info.isDirectory() ? path : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 interface SkillAdapter {
   readonly name: string;
   readonly description: string;
@@ -298,9 +323,12 @@ export class SessionSupervisor {
   private baseCreateOptions(
     workspace: WorkspaceRef,
     sessionManager: SessionManager,
+    executionCwd?: string,
   ): PiCreateAgentSessionOptions {
     const createOptions: PiCreateAgentSessionOptions = {
-      cwd: workspace.path,
+      // Session files stay on the workspace. Tools and bash follow executionCwd
+      // when a session has its own git worktree.
+      cwd: executionCwd ?? workspace.path,
       sessionManager,
       resourceLoaderOptions: {
         extensionFactories: [
@@ -666,8 +694,18 @@ export class SessionSupervisor {
     await this.registerWorkspaceRef(workspace);
 
     const initialModel = options?.initialModel;
+    const sessionManager = SessionManager.create(workspace.path);
+    const allocatedSessionId = allocatedSessionIdOf(sessionManager);
+    let executionCwd: string | undefined;
+    if (options?.resolveExecutionCwd) {
+      if (!allocatedSessionId) {
+        throw new Error("The session id was not available before the agent runtime started.");
+      }
+      const resolved = (await options.resolveExecutionCwd(allocatedSessionId))?.trim();
+      if (resolved) executionCwd = resolved;
+    }
     const createOptions: PiCreateAgentSessionOptions = {
-      ...this.baseCreateOptions(workspace, SessionManager.create(workspace.path)),
+      ...this.baseCreateOptions(workspace, sessionManager, executionCwd),
       ...(initialModel
         ? {
             resolveInitialModel: (modelRuntime: ModelRuntime) =>
@@ -685,6 +723,16 @@ export class SessionSupervisor {
 
     const runtime = await this.createAgentSessionRuntimeImpl(createOptions);
     const session = runtime.session;
+    if (
+      options?.resolveExecutionCwd &&
+      allocatedSessionId &&
+      session.sessionId !== allocatedSessionId
+    ) {
+      await runtime.dispose().catch(() => undefined);
+      throw new Error(
+        `Session id ${session.sessionId} did not match the prepared id ${allocatedSessionId}.`,
+      );
+    }
 
     const record = this.createRecord(
       workspace,
@@ -1235,6 +1283,24 @@ export class SessionSupervisor {
     };
   }
 
+  /**
+   * Rebuild an idle session's runtime so its cwd follows the catalog worktree
+   * path. Used after a worktree is discarded and the session should return to
+   * the workspace directory.
+   */
+  async retargetExecutionCwd(sessionRef: SessionRef): Promise<void> {
+    const existing = this.records.get(sessionKey(sessionRef));
+    if (!existing || !existing.session || existing.closed) return;
+    if (existing.status === "running" || existing.promptStarting) {
+      throw new Error("Cannot change the execution directory while the session is running.");
+    }
+    existing.unsubscribeAgent?.();
+    existing.unsubscribeAgent = undefined;
+    await this.disposeRecordRuntimeSafely(existing);
+    existing.closed = true;
+    await this.ensureRecord(sessionRef);
+  }
+
   async closeSession(sessionRef: SessionRef): Promise<void> {
     const record = this.records.get(sessionKey(sessionRef));
     if (!record) {
@@ -1320,7 +1386,11 @@ export class SessionSupervisor {
     let runtime: AgentSessionRuntime;
     try {
       runtime = await this.createAgentSessionRuntimeImpl(
-        this.baseCreateOptions(workspace, SessionManager.open(sessionFile)),
+        this.baseCreateOptions(
+          workspace,
+          SessionManager.open(sessionFile),
+          await executionCwdForCatalogEntry(sessionEntry),
+        ),
       );
     } catch (error) {
       await this.releaseLeasePath(leasePath);

@@ -72,6 +72,7 @@ import type {
   SendChildThreadFollowUpInput,
   SetChildSupervisionLoopInput,
   SelectedTranscriptRecord,
+  SessionWorktreeDiff,
   StartThreadInput,
   ThemePresetId,
   ThreadGrouping,
@@ -250,6 +251,12 @@ contextBridge.exposeInMainWorld("piApp", {
     ipcRenderer.invoke(desktopIpc.lancerAction, input) as Promise<DesktopAppState>,
   createSession: (input: CreateSessionInput) =>
     ipcRenderer.invoke(desktopIpc.createSession, input) as Promise<DesktopAppState>,
+  getSessionWorktreeDiff: (target: WorkspaceSessionTarget) =>
+    ipcRenderer.invoke(desktopIpc.getSessionWorktreeDiff, target) as Promise<SessionWorktreeDiff>,
+  mergeSessionWorktree: (target: WorkspaceSessionTarget) =>
+    ipcRenderer.invoke(desktopIpc.mergeSessionWorktree, target) as Promise<DesktopAppState>,
+  discardSessionWorktree: (target: WorkspaceSessionTarget) =>
+    ipcRenderer.invoke(desktopIpc.discardSessionWorktree, target) as Promise<DesktopAppState>,
   startThread: (input: StartThreadInput) =>
     ipcRenderer.invoke(desktopIpc.startThread, input) as Promise<DesktopAppState>,
   forkThread: (input: ForkThreadInput) =>
