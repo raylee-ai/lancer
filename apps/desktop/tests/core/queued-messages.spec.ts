@@ -252,6 +252,8 @@ export default function(pi) {
     await expect(window.locator(".queued-composer-message__mode")).toHaveCount(0);
     await expect(window.getByTestId("transcript")).not.toContainText(queuedSteer.text);
     await expect(window.getByTestId("transcript")).not.toContainText(queuedFollowUp.text);
+    // Send and steer keystrokes are ignored until the session mode has loaded.
+    await expect(window.locator("footer.composer")).toHaveAttribute("data-composer-ready", "true");
 
     await window
       .getByTestId("queued-composer-message")

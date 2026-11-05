@@ -577,6 +577,10 @@ function createWindow(): BrowserWindow {
       saveWindowBoundsNow();
     });
   }
+  const mapHiddenLinuxWindow = () => {
+    if (window.isDestroyed() || window.isVisible()) return;
+    window.showInactive();
+  };
   window.once("ready-to-show", () => {
     if (savedBounds?.maximized) {
       window.maximize();
@@ -590,6 +594,13 @@ function createWindow(): BrowserWindow {
     // waits until timeout. showInactive maps the window without focusing it.
     if (process.platform === "linux") window.showInactive();
   });
+  // ready-to-show is not guaranteed on Linux. Map again after load, and once
+  // more if the window is still unmapped a few seconds later.
+  if (process.platform === "linux" && backgroundTestMode) {
+    window.webContents.once("did-finish-load", mapHiddenLinuxWindow);
+    const linuxShowFallback = setTimeout(mapHiddenLinuxWindow, 5_000);
+    window.once("closed", () => clearTimeout(linuxShowFallback));
+  }
   window.webContents.on("before-input-event", (event, input) => {
     if (input.type !== "keyDown") {
       return;

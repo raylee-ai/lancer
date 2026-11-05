@@ -18,9 +18,11 @@ export interface ModifierHintSpec {
 /**
  * Hints that show from a press of one modifier until it is released. A labelled
  * shortcut keeps them up while the modifier stays held; any other key ends them
- * until the modifier is pressed again. A key or pointer event reporting the
- * modifier up also ends them, because macOS can drop the modifier keyup after a
- * chord the main process consumed; until such an event or a window blur, they stay up.
+ * until the modifier is pressed again. A key or click reporting the modifier
+ * up also ends them, because macOS can drop the modifier keyup after a chord
+ * the main process consumed. Pointer moves are ignored: Playwright and some
+ * Linux paths emit them without the held modifier and were clearing thread
+ * badges mid-chord. Until a real key, click, or window blur, the hints stay up.
  */
 export function createModifierHints(spec: ModifierHintSpec) {
   const next = (current: boolean, event: HintKeyEvent, platform: NodeJS.Platform): boolean => {
@@ -68,13 +70,11 @@ export function createModifierHints(spec: ModifierHintSpec) {
       };
       window.addEventListener("keydown", syncKey);
       window.addEventListener("keyup", syncKey);
-      window.addEventListener("pointermove", syncPointer);
       window.addEventListener("pointerdown", syncPointer);
       window.addEventListener("blur", dismiss);
       return () => {
         window.removeEventListener("keydown", syncKey);
         window.removeEventListener("keyup", syncKey);
-        window.removeEventListener("pointermove", syncPointer);
         window.removeEventListener("pointerdown", syncPointer);
         window.removeEventListener("blur", dismiss);
         dismiss();

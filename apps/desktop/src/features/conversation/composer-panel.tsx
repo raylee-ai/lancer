@@ -37,6 +37,8 @@ interface ComposerPanelProps {
   readonly onOpenDeliverable?: (path: string) => Promise<void>;
   readonly onSelectDoubaoApp?: () => void;
   readonly preparingTaskDraft?: boolean;
+  /** False while the session mode is still loading. Send waits; Stop does not. */
+  readonly sendReady?: boolean;
   readonly selectedSession: SessionRecord;
   readonly lastError?: string;
   readonly runtime?: RuntimeSnapshot;
@@ -96,6 +98,7 @@ export function ComposerPanel({
   onOpenDeliverable,
   onSelectDoubaoApp,
   preparingTaskDraft = false,
+  sendReady = true,
   selectedSession,
   lastError,
   runtime,
@@ -151,8 +154,18 @@ export function ComposerPanel({
   const primaryActionIsStop = selectedSession.status === "running" && !hasComposerInput;
 
   return (
-    <footer className="composer" aria-busy={preparingTaskDraft}>
-      <div className="conversation conversation--composer" inert={preparingTaskDraft}>
+    <footer
+      className="composer"
+      aria-busy={preparingTaskDraft}
+      data-composer-ready={preparingTaskDraft || !sendReady ? "false" : "true"}
+    >
+      {/* The inert copy of Stop stays out of the accessibility tree. The button
+          below the fold is the one that can actually stop while a task draft is saved. */}
+      <div
+        className="conversation conversation--composer"
+        inert={preparingTaskDraft}
+        aria-hidden={preparingTaskDraft || undefined}
+      >
         <ComposerSurface
           workspacePath={workspacePath}
           onOpenDeliverable={onOpenDeliverable}
@@ -237,10 +250,11 @@ export function ComposerPanel({
                     type="button"
                     disabled={
                       !primaryActionIsStop &&
-                      ((!composerDraft.trim() && attachments.length === 0) ||
+                      (!sendReady ||
+                        (!composerDraft.trim() && attachments.length === 0) ||
                         modelOnboarding.requiresModelSelection)
                     }
-                    onClick={onSubmit}
+                    onClick={primaryActionIsStop ? onStop : onSubmit}
                   >
                     {primaryActionIsStop ? <StopSquareIcon /> : <ArrowUpIcon />}
                   </button>

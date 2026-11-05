@@ -116,7 +116,9 @@ for (const { finish, prompt } of pendingPrompts) {
       );
       await page.getByTestId("composer").fill(prompt);
       await page.getByTestId("send").click();
-      await expect(page.getByRole("button", { name: "Stop run", exact: true })).toBeVisible();
+      // Mode loading must not mount a second Stop control next to the send button.
+      await expect(page.getByTestId("stop-while-preparing-task")).toHaveCount(0);
+      await expect(page.getByTestId("send")).toHaveAttribute("aria-label", "Stop run");
       const steerKey = process.platform === "darwin" ? "Cmd+Enter" : "Ctrl+Enter";
       await expect(page.locator(".composer__hint")).toContainText(
         `Enter to queue · ${steerKey} to steer`,
@@ -143,8 +145,10 @@ for (const { finish, prompt } of pendingPrompts) {
         return;
       }
       await clickSession(page, "Pending prompt");
-      await expect(page.getByRole("button", { name: "Stop run", exact: true })).toBeVisible();
-      await page.getByRole("button", { name: "Stop run", exact: true }).click();
+      await expect(page.getByTestId("stop-while-preparing-task")).toHaveCount(0);
+      const stop = page.getByTestId("send");
+      await expect(stop).toHaveAttribute("aria-label", "Stop run");
+      await stop.click();
       await expect(page.getByTestId("send")).toHaveAttribute("aria-label", "Send message", {
         timeout: 5_000,
       });

@@ -130,14 +130,18 @@ function assertCoreShards(workflow) {
   assert.equal(check.env.CI_NEEDS, "${{ toJSON(needs) }}");
   assert.equal(check.if, undefined);
   const matrix = workflow.jobs["desktop-core-shards"];
-  assert.equal(matrix.if, undefined);
-  assert.deepEqual(matrix.strategy.matrix, { shard: [1, 2, 3, 4] });
-  assert.equal(matrix.strategy["fail-fast"], false);
-  // PRs run Core on Linux and main pushes on macOS; each runner OS gets exactly one Core step.
   assert.equal(
-    matrix["runs-on"],
-    "${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'macos-latest' }}",
+    matrix.if,
+    "${{ matrix.os == 'ubuntu-latest' || github.event_name != 'pull_request' }}",
   );
+  assert.deepEqual(matrix.strategy.matrix, {
+    os: ["ubuntu-latest", "macos-latest"],
+    shard: [1, 2, 3, 4],
+  });
+  assert.equal(matrix.strategy["fail-fast"], false);
+  // PRs run Core on Linux. Pushes to main run Linux and macOS. macOS cells are not
+  // scheduled for pull requests, so they do not queue behind the account's macOS slots.
+  assert.equal(matrix["runs-on"], "${{ matrix.os }}");
   const mac = matrix.steps.find((step) => step.name === "Desktop Core (macOS)");
   assert.equal(mac.if, "${{ runner.os == 'macOS' }}");
   assert.equal(
@@ -151,7 +155,15 @@ function assertCoreShards(workflow) {
     /^xvfb-run .* pnpm --filter @lancer\/desktop run test:e2e:core --shard=\$\{\{ matrix\.shard \}\}\/4 --reporter=line,json$/,
   );
   const upload = matrix.steps.find((step) => isAction(step.uses, "actions/upload-artifact"));
-  assert.equal(upload.with.name, "desktop-core-test-results-${{ matrix.shard }}");
+  assert.equal(upload.with.name, "desktop-core-test-results-${{ matrix.os }}-${{ matrix.shard }}");
+  for (const [name, job] of Object.entries(workflow.jobs)) {
+    if (!job.steps?.some((step) => isAction(step.uses, "actions/checkout"))) continue;
+    const parent = job.steps.find(
+      (step) => step.run === "node .github/scripts/check-pr-merge-parent.mjs",
+    );
+    assert.ok(parent, `${name} must verify the pull request merge parent after checkout`);
+    assert.equal(parent.if, "github.event_name == 'pull_request'");
+  }
 }
 
 test("all Core shards are required and retain independent reports", () => {

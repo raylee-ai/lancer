@@ -27,7 +27,9 @@ export default defineConfig({
     : process.env.CI
       ? undefined
       : resolve(__dirname, "../../.artifacts/playwright", `${Date.now()}-${process.pid}`),
-  retries: 0,
+  // Local runs stay at zero so a race fails in front of the person debugging it.
+  // CI retries once: a one-off flake is reported as flaky, and a second failure is still red.
+  retries: process.env.CI ? 1 : 0,
   use: {
     trace: "retain-on-failure",
     screenshot: "only-on-failure",

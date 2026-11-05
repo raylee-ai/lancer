@@ -995,7 +995,8 @@ export default function App() {
           onOpenDeliverable={handleOpenDeliverable}
           onSelectDoubaoApp={selectDoubao}
           key={selectedSessionKey}
-          preparingTaskDraft={extensionHostActions.preparingTaskDraft || !doubao.ready}
+          preparingTaskDraft={extensionHostActions.preparingTaskDraft}
+          sendReady={doubao.ready}
           activeSlashCommand={slashMenu.activeSlashFlow?.command}
           activeSlashCommandMeta={slashMenu.activeSlashFlow?.command?.description}
           attachments={composerAttachments}

@@ -170,6 +170,12 @@ export function ProcessConversationRow({
   const lane = data.lanes.find((lane) => lane.id === event.lane)!;
   const highlighted = state.highlighted === event.id || state.hovered === event.id;
   const steps = message.steps ?? [];
+  // Local results such as /status are activity steps inside this stage. The
+  // collapsed header only names the first one ("Resumed session"), so the
+  // command text has to stay in the row or it never appears in the transcript.
+  const closedActivityLabels = steps.filter(
+    (step) => !step.nativeBody && step.kind !== "think" && step.label,
+  );
   const seconds = knownDurationSeconds(steps);
   const durationSuffix = seconds === null ? "" : ` · ${seconds}s`;
   const groupId = `g${message.id}`;
@@ -230,6 +236,15 @@ export function ProcessConversationRow({
             : `${actorName(data, event.actor)} 工作中`}
         </span>
       </button>
+      {!open && closedActivityLabels.length > 0 ? (
+        <div className="process-stage__activities">
+          {closedActivityLabels.map((step) => (
+            <span key={step.id} className="process-stage__activity">
+              {step.label}
+            </span>
+          ))}
+        </div>
+      ) : null}
       {open ? (
         <div className="eb process-stage__body">
           {steps.length ? (

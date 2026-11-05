@@ -62,15 +62,30 @@ test("one icon and keyboard shortcuts toggle the selected workspace tool", async
     await expect(terminal).toBeVisible();
     await expect(window.locator(".diff-panel")).toHaveCount(0);
     await terminal.locator(".xterm").click();
+    // Ctrl+R before the shell's prompt is ready is echoed as "^R" and never
+    // starts readline reverse-search.
+    await expect(terminal.locator(".xterm-rows")).toContainText("workbench-shortcuts $");
     const modifier = process.platform === "darwin" ? "meta" : "control";
-    const pressSidePanelShortcut = () =>
-      harness.electronApp.evaluate(({ BrowserWindow }, keyModifier) => {
-        BrowserWindow.getAllWindows()[0]?.webContents.sendInputEvent({
-          type: "keyDown",
-          keyCode: "b",
-          modifiers: [keyModifier, "alt"],
-        });
-      }, modifier);
+    const pressInWindow = (keyCode: string, modifiers: readonly string[]) =>
+      harness.electronApp.evaluate(
+        ({ BrowserWindow }, payload) => {
+          const contents = BrowserWindow.getAllWindows()[0]?.webContents;
+          if (!contents) throw new Error("Missing window");
+          // keyDown alone leaves the modifier stuck, so the next chord is not the one sent.
+          contents.sendInputEvent({
+            type: "keyDown",
+            keyCode: payload.keyCode,
+            modifiers: payload.modifiers,
+          });
+          contents.sendInputEvent({
+            type: "keyUp",
+            keyCode: payload.keyCode,
+            modifiers: payload.modifiers,
+          });
+        },
+        { keyCode, modifiers: [...modifiers] },
+      );
+    const pressSidePanelShortcut = () => pressInWindow("b", [modifier, "alt"]);
     await pressSidePanelShortcut();
     await expect(window.getByTestId("workbench")).toHaveCount(0);
     await pressSidePanelShortcut();
@@ -81,13 +96,7 @@ test("one icon and keyboard shortcuts toggle the selected workspace tool", async
 
     // Cmd+R reaches Review from the terminal on macOS; Ctrl+R stays with the shell elsewhere.
     await terminal.locator(".xterm").click();
-    await harness.electronApp.evaluate(({ BrowserWindow }, keyModifier) => {
-      BrowserWindow.getAllWindows()[0]?.webContents.sendInputEvent({
-        type: "keyDown",
-        keyCode: "r",
-        modifiers: [keyModifier],
-      });
-    }, modifier);
+    await pressInWindow("r", [modifier]);
     if (process.platform === "darwin") {
       await expect(window.locator(".diff-panel")).toBeVisible();
     } else {

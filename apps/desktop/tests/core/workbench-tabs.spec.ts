@@ -416,26 +416,65 @@ test("keeps one resizable width across tools, chooser, tasks, and restart", asyn
   };
   let harness = await launchDesktop(fixture.userDataDir, options);
   const setWindowWidth = async (width: number) => {
-    await harness.firstWindow();
+    const page = await harness.firstWindow();
     await harness.electronApp.evaluate(({ BrowserWindow }, nextWidth) => {
       BrowserWindow.getAllWindows()[0]?.setContentSize(nextWidth, 900);
     }, width);
+    await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(width);
   };
   try {
     await setWindowWidth(1440);
     let window = await harness.firstWindow();
     await selectSession(window, TASK_A);
     await openWorkbench(window);
-    const panelWidth = async () =>
+    const reportedWidth = async () =>
+      window.evaluate(() => {
+        const host = document.querySelector<HTMLElement>(
+          "[data-testid='lancer-process-surface'], main",
+        );
+        const raw = host ? getComputedStyle(host).getPropertyValue("--workbench-width") : "";
+        const value = Number.parseFloat(raw);
+        return Number.isFinite(value) ? value : 0;
+      });
+    const visualWidth = async () =>
       Math.round((await window.getByTestId("workbench").boundingBox())!.width);
-    await expect.poll(panelWidth).toBe(440);
     const handle = window.getByRole("separator", { name: "Side panel width" });
+    // The drag clamp uses the handle's measured maximum. 440 is the default even
+    // before the window has finished laying out, so wait until 540 actually fits.
+    await expect
+      .poll(async () => Number(await handle.getAttribute("aria-valuemax")))
+      .toBeGreaterThanOrEqual(540);
+    await expect.poll(reportedWidth).toBe(440);
     const start = (await handle.boundingBox())!;
-    await window.mouse.move(start.x + 3, start.y + 160);
-    await window.mouse.down();
-    await window.mouse.move(start.x - 97, start.y + 160, { steps: 10 });
-    await window.mouse.up();
-    await expect.poll(panelWidth).toBe(540);
+    const originX = start.x + start.width / 2;
+    const originY = start.y + Math.min(40, start.height / 2);
+    // Element pointer events stay on this window. A shared-display mouse drag
+    // can stop short, which is how 540 came back as 510 or 490.
+    await handle.dispatchEvent("pointerdown", {
+      clientX: originX,
+      clientY: originY,
+      pointerId: 1,
+      button: 0,
+      buttons: 1,
+    });
+    for (let step = 1; step <= 10; step += 1) {
+      await handle.dispatchEvent("pointermove", {
+        clientX: originX - step * 10,
+        clientY: originY,
+        pointerId: 1,
+        button: 0,
+        buttons: 1,
+      });
+    }
+    await handle.dispatchEvent("pointerup", {
+      clientX: originX - 100,
+      clientY: originY,
+      pointerId: 1,
+      button: 0,
+      buttons: 0,
+    });
+    await expect.poll(reportedWidth).toBe(540);
+    const panelWidth = reportedWidth;
     for (const tool of ["Files", "Review", "Terminal"] as const) {
       await window.getByTestId("workbench-add-tab").click();
       await expect.poll(panelWidth).toBe(540);
@@ -471,10 +510,10 @@ test("keeps one resizable width across tools, chooser, tasks, and restart", asyn
     await expect.poll(panelWidth).toBe(520);
     await window.screenshot({ path: testInfo.outputPath("compact-resizable-workspace.png") });
     await setWindowWidth(1040);
-    await expect.poll(panelWidth).toBeLessThanOrEqual(520);
+    await expect.poll(visualWidth).toBeLessThanOrEqual(520);
     await expect(window.getByTestId("composer")).toBeVisible();
     await setWindowWidth(900);
-    await expect.poll(panelWidth).toBe(520);
+    await expect.poll(visualWidth).toBe(520);
     await handle.focus();
     await handle.press("Home");
     await expect.poll(panelWidth).toBe(320);
