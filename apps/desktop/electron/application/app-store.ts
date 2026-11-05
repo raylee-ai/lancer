@@ -1766,6 +1766,7 @@ export class DesktopAppStore {
     return entries.map((entry) => ({
       providerId: entry.providerId,
       baseUrl: entry.baseUrl,
+      ...(entry.api !== undefined ? { api: entry.api } : {}),
       ...(entry.apiKey !== undefined ? { apiKey: entry.apiKey } : {}),
       models: entry.models.map((model) => ({
         id: model.id,
@@ -1784,6 +1785,7 @@ export class DesktopAppStore {
         this.driver.runtimeSupervisor.setCustomProvider(ws, {
           providerId: config.providerId,
           baseUrl: config.baseUrl,
+          ...(config.api !== undefined ? { api: config.api } : {}),
           ...(config.apiKey !== undefined ? { apiKey: config.apiKey } : {}),
           models: config.models.map((model) => ({
             id: model.id,

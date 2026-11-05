@@ -22,6 +22,7 @@ import {
   type MessageBoxOptions,
 } from "electron";
 import { isValidHttpBaseUrl } from "@lancer/pi-sdk-driver";
+import { normalizeAnthropicBaseUrl } from "@lancer/pi-sdk-driver/custom-provider-types";
 import { createRequire } from "node:module";
 import { randomUUID } from "node:crypto";
 import type {
@@ -37,6 +38,7 @@ import { augmentPosixPath } from "../scripts/augment-path.cjs";
 import { DesktopAppStore } from "./application/app-store";
 import { revealInFolder } from "./platform/reveal-in-folder";
 import { WindowOwner } from "./windows/window-owner";
+import { reopenWorkspaceWindow } from "./windows/window-reopen";
 import { createPiOrbWindow } from "./windows/pi-orb-window";
 import {
   normalizeWindowBounds,
@@ -1017,19 +1019,7 @@ if (!hasSingleInstanceLock) {
   app.exit(0);
 }
 
-app.on("second-instance", () => {
-  const window = windowOwner.foreground();
-  if (!window) {
-    return;
-  }
-  if (window.isMinimized()) {
-    window.restore();
-  }
-  window.show();
-  window.focus();
-});
-
-app
+const applicationReady = app
   .whenReady()
   .then(async () => {
     if (!hasSingleInstanceLock) {
@@ -1454,6 +1444,18 @@ app
     app.exit(1);
   });
 
+// Install only after the readiness promise exists; early second instances wait
+// for the store and initial workspace, not just Electron's ready event.
+app.on("second-instance", () => {
+  void reopenWorkspaceWindow(
+    applicationReady,
+    () => windowOwner.foreground(),
+    createAppWindow,
+  ).catch((error: unknown) => {
+    console.error("[main] Could not reopen application window", error);
+  });
+});
+
 app.on("window-all-closed", () => {
   // macOS normally keeps the app alive after its final window closes. The
   // Electron harness closes windows to end each isolated run, so let explicit
@@ -1838,12 +1840,32 @@ async function probeCustomProviderModels(
   if (!baseUrl || !isValidHttpBaseUrl(baseUrl)) {
     return { ok: false, error: "Base URL must start with http:// or https://" };
   }
-  const target = `${baseUrl.replace(/\/+$/, "")}/models`;
+  const api = input.api ?? "openai-completions";
+  let normalizedBaseUrl: string;
+  try {
+    normalizedBaseUrl =
+      api === "anthropic-messages"
+        ? normalizeAnthropicBaseUrl(baseUrl)
+        : baseUrl.replace(/\/+$/, "");
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+  const target =
+    api === "anthropic-messages" ? `${normalizedBaseUrl}/v1/models` : `${normalizedBaseUrl}/models`;
   const apiKey = input.apiKey?.trim();
+  const headers: Record<string, string> =
+    api === "anthropic-messages" ? { "anthropic-version": "2023-06-01" } : {};
+  if (apiKey) {
+    if (api === "anthropic-messages") {
+      headers["x-api-key"] = apiKey;
+    } else {
+      headers.Authorization = `Bearer ${apiKey}`;
+    }
+  }
   try {
     const response = await net.fetch(target, {
       method: "GET",
-      headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined,
+      headers,
       signal: AbortSignal.timeout(5000),
     });
     if (!response.ok) {

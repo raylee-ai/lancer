@@ -1,3 +1,15 @@
+export const CUSTOM_PROVIDER_APIS = [
+  "openai-completions",
+  "openai-responses",
+  "anthropic-messages",
+] as const;
+
+export type CustomProviderApi = (typeof CUSTOM_PROVIDER_APIS)[number];
+
+export function isCustomProviderApi(value: unknown): value is CustomProviderApi {
+  return CUSTOM_PROVIDER_APIS.some((api) => api === value);
+}
+
 export interface CustomProviderModelInput {
   readonly id: string;
   readonly contextWindow?: number;
@@ -6,6 +18,7 @@ export interface CustomProviderModelInput {
 export interface CustomProviderInput {
   readonly providerId: string;
   readonly baseUrl: string;
+  readonly api?: CustomProviderApi;
   readonly apiKey?: string;
   readonly models: readonly CustomProviderModelInput[];
 }
@@ -13,6 +26,7 @@ export interface CustomProviderInput {
 export interface CustomProviderEntry {
   readonly providerId: string;
   readonly baseUrl: string;
+  readonly api?: CustomProviderApi;
   readonly apiKey?: string;
   readonly models: readonly CustomProviderModelInput[];
 }
@@ -57,4 +71,16 @@ export function isValidHttpBaseUrl(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+export function normalizeAnthropicBaseUrl(value: string): string {
+  const url = new URL(value.trim());
+  // The Anthropic SDK concatenates its /v1 paths to this root, including when
+  // the root already contains a gateway prefix. Query/fragment bases swallow
+  // that path instead of addressing the messages endpoint.
+  if (url.href.includes("?") || url.href.includes("#")) {
+    throw new Error("Anthropic base URL must not contain a query string or fragment.");
+  }
+  url.pathname = url.pathname.replace(/\/+$/, "").replace(/\/v1$/, "");
+  return url.toString().replace(/\/+$/, "");
 }
