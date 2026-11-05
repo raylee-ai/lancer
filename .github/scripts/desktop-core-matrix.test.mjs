@@ -16,10 +16,7 @@ test("pull requests schedule Linux and macOS Core shards", () => {
 });
 
 test("manual dispatch schedules the same shards as a main push", () => {
-  assert.deepEqual(
-    desktopCoreMatrixInclude("workflow_dispatch"),
-    desktopCoreMatrixInclude("push"),
-  );
+  assert.deepEqual(desktopCoreMatrixInclude("workflow_dispatch"), desktopCoreMatrixInclude("push"));
 });
 
 test("pushes schedule Linux and macOS Core shards", () => {
