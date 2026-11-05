@@ -64,6 +64,10 @@ patches/
 # Project-local received media and runtime evidence, never source.
 /.lancer/
 
+# Eval runs are generated output.
+/evals/runs/
+/evals/.cache/
+
 # Windows checkouts (core.symlinks=false) materialize the CLAUDE.md symlink
 # as a plain file containing only "AGENTS.md"; macOS/Linux keep a real symlink,
 # which Prettier already skips.

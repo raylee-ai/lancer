@@ -62,3 +62,9 @@ index.html
 
 # Reviewed public template only; actual environment files stay private.
 !/.env.example
+
+# Coding-agent eval runs. Reports are produced by a run and are not source.
+/evals/runs/
+/evals/.cache/
+/evals/**/__pycache__/
+/evals/**/*.pyc

@@ -157,6 +157,10 @@ Media tests require working FFmpeg/FFprobe. Core tests use isolated fixtures and
 
 For a local macOS application, run `bash scripts/build-mac-lancer.sh --skip-install --dir` after configuring a persistent signing identity as described in [macOS signing](docs/macos-local-signing.md). Output is placed in `apps/desktop/release-local-*/`. The source archive contains no `.app`; local signed apps are not notarized public releases. Do not replace an installed app until the candidate is verified.
 
+## Coding agent evals
+
+`evals/` is a small SWE-bench Lite harness: 26 public instance ids, pluggable adapters (Lancer via `scripts/lancer-ctl`, Claude Code, Codex, and an offline mock), metrics, failure buckets, and a Markdown/HTML report. It does not ship scores. Run the offline pipeline with `python3 evals/run.py --self-test`. Design, Mac mini M4, Linux, and custom task sets are in [evals/README.md](evals/README.md) (中文 and English).
+
 ## 致谢与许可
 
 Lancer 基于 Matthew Lam 的 **pi-gui v1.0.1**（MIT）开发，保留原始 [LICENSE](LICENSE)、版权声明、[NOTICE](NOTICE) 和[上游 README](docs/upstream/README.md)。Lancer 与 pi-gui、pi 和模型提供商没有隶属关系。
