@@ -44,7 +44,7 @@ test("adds a workspace from the empty state button using a stubbed folder select
   }
 });
 
-test("exposes File > Open Folder… with Command+O and reuses the same open-folder action", async () => {
+test("exposes File > Open Folder… with CommandOrControl+O and reuses the same open-folder action", async () => {
   test.skip(process.platform !== "darwin", "The application menu is only installed on macOS.");
   test.setTimeout(60_000);
   const userDataDir = await makeUserDataDir();
@@ -60,7 +60,7 @@ test("exposes File > Open Folder… with Command+O and reuses the same open-fold
     expect(menuItem).toEqual({
       id: OPEN_FOLDER_MENU_ITEM_ID,
       label: "Open Folder…",
-      accelerator: "Command+O",
+      accelerator: "CommandOrControl+O",
       parentLabel: "File",
     });
 

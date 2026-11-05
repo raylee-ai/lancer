@@ -15,6 +15,11 @@ test("one icon and keyboard shortcuts toggle the selected workspace tool", async
   const harness = await launchDesktop(userDataDir, {
     initialWorkspaces: [workspacePath],
     testMode: "background",
+    // Pin bash with no profile so macOS does not print the zsh deprecation
+    // banner, and both platforms share one prompt marker.
+    envOverrides: {
+      PI_APP_TERMINAL_PROMPT: "LANCER_READY$ ",
+    },
   });
 
   try {
@@ -63,9 +68,8 @@ test("one icon and keyboard shortcuts toggle the selected workspace tool", async
     await expect(window.locator(".diff-panel")).toHaveCount(0);
     await terminal.locator(".xterm").click();
     // Ctrl+R before the shell's prompt is ready is echoed as "^R" and never
-    // starts readline reverse-search. The prompt has no space before "$" on
-    // the current GitHub runner image.
-    await expect(terminal.locator(".xterm-rows")).toContainText(/workbench-shortcuts\$/);
+    // starts readline reverse-search.
+    await expect(terminal.locator(".xterm-rows")).toContainText("LANCER_READY$");
     const modifier = process.platform === "darwin" ? "meta" : "control";
     const pressInWindow = (keyCode: string, modifiers: readonly string[]) =>
       harness.electronApp.evaluate(

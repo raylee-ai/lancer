@@ -11,10 +11,9 @@ The checker is dependency-free; it runs on Node 22 without a package install.
 Its tests parse the workflow and require every nonaggregate job to be covered,
 prevent `continue-on-error`, and exercise failing results and the CLI exit status.
 
-The `desktop-core-shards` matrix runs indices 1–4. Pull requests run them on
-Ubuntu under Xvfb. Pushes to `main` run them on Ubuntu and on macOS. Specs
-gated to macOS therefore gate only the push to `main`, not the pull request,
-and Linux coverage is not dropped after merge. The stable `desktop-core`
+The `desktop-core-shards` matrix runs indices 1–4 on Ubuntu under Xvfb and on
+macOS for pull requests, pushes to `main`, and `workflow_dispatch`. Specs
+gated to macOS therefore gate the pull request. The stable `desktop-core`
 job waits for the matrix with `always()` and validates its aggregate result
 using `check-ci-results.mjs --core-shards`. Failure, cancellation, skipping,
 and missing results fail closed. The final gate waits for this stable check;

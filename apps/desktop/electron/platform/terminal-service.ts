@@ -304,7 +304,10 @@ export class TerminalService {
   private spawnPty(webContents: WebContents, session: TerminalSession): void {
     try {
       ensureNodePtySpawnHelperExecutable(this.options.isPackaged);
-      session.pty = loadNodePty().spawn(session.shell, [], {
+      const command = resolveTerminalCommand(process.platform, process.env, this.options);
+      if (process.platform !== "win32") ensureExecutable(command.shell);
+      session.shell = command.shell;
+      session.pty = loadNodePty().spawn(session.shell, [...command.args], {
         name: "xterm-256color",
         cols: session.size.cols,
         rows: session.size.rows,
@@ -439,14 +442,28 @@ export class TerminalService {
   }
 
   private resolveShell(): string {
-    const configuredShell = this.options.getIntegratedTerminalShell()?.trim();
-    const shellPath = configuredShell || process.env.SHELL || defaultShellForPlatform();
-    if (process.platform !== "win32" && !path.isAbsolute(shellPath)) {
-      throw new Error(`Integrated terminal shell must be an absolute path: ${shellPath}`);
-    }
-    ensureExecutable(shellPath);
-    return shellPath;
+    return resolveTerminalCommand(process.platform, process.env, this.options).shell;
   }
+}
+
+/** How the integrated terminal process is started. */
+export function resolveTerminalCommand(
+  platform: NodeJS.Platform,
+  env: NodeJS.ProcessEnv,
+  options: { getIntegratedTerminalShell(): string | undefined },
+): { readonly shell: string; readonly args: readonly string[] } {
+  const prompt = env.PI_APP_TERMINAL_PROMPT?.trim();
+  // A pinned prompt starts bash without profile or rc files, so macOS bash's
+  // zsh-deprecation banner and the distro PS1 cannot replace the marker.
+  if (prompt && platform !== "win32") {
+    return { shell: "/bin/bash", args: ["--noprofile", "--norc", "-i"] };
+  }
+  const configuredShell = options.getIntegratedTerminalShell()?.trim();
+  const shellPath = configuredShell || env.SHELL || defaultShellForPlatform(platform);
+  if (platform !== "win32" && !path.isAbsolute(shellPath)) {
+    throw new Error(`Integrated terminal shell must be an absolute path: ${shellPath}`);
+  }
+  return { shell: shellPath, args: [] };
 }
 
 function normalizeSize(size?: Partial<TerminalSize>): TerminalSize {
@@ -490,11 +507,11 @@ function ensureExecutable(shellPath: string): void {
   accessSync(shellPath, constants.X_OK);
 }
 
-function defaultShellForPlatform(): string {
-  if (process.platform === "win32") {
+function defaultShellForPlatform(platform: NodeJS.Platform = process.platform): string {
+  if (platform === "win32") {
     return process.env.ComSpec || "cmd.exe";
   }
-  if (process.platform === "darwin") {
+  if (platform === "darwin") {
     return "/bin/zsh";
   }
   return "/bin/bash";
@@ -508,6 +525,11 @@ function buildTerminalEnv(): Record<string, string> {
     }
   }
   env.TERM = "xterm-256color";
+  const prompt = env.PI_APP_TERMINAL_PROMPT?.trim();
+  if (prompt && process.platform !== "win32") {
+    env.PS1 = prompt;
+    env.BASH_SILENCE_DEPRECATION_WARNING = "1";
+  }
   delete env.TERMINFO;
   delete env.TERMINFO_DIRS;
   return env;

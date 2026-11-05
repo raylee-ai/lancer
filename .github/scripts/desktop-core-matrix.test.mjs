@@ -2,14 +2,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { desktopCoreMatrixInclude, desktopCoreMatrixOutput } from "./desktop-core-matrix.mjs";
 
-test("pull requests schedule four Linux Core shards and no macOS runners", () => {
+test("pull requests schedule Linux and macOS Core shards", () => {
   const include = desktopCoreMatrixInclude("pull_request");
+  assert.equal(include.length, 8);
   assert.deepEqual(
-    include.map((cell) => cell.os),
-    ["ubuntu-latest", "ubuntu-latest", "ubuntu-latest", "ubuntu-latest"],
+    include.filter((cell) => cell.os === "ubuntu-latest").map((cell) => cell.shard),
+    [1, 2, 3, 4],
   );
   assert.deepEqual(
-    include.map((cell) => cell.shard),
+    include.filter((cell) => cell.os === "macos-latest").map((cell) => cell.shard),
     [1, 2, 3, 4],
   );
 });

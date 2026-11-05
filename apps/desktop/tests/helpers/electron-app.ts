@@ -2065,12 +2065,10 @@ export async function waitForSessionByTitle(
 
 export async function selectSession(window: Page, sessionTitle: string): Promise<void> {
   await clickSession(window, sessionTitle);
-  const header = window.locator('[data-testid="thread-title"], .chat-header__title');
-  if ((await header.count()) > 0) {
-    await expect(header).toHaveText(sessionTitle);
-  } else {
-    await expect(window.getByTestId("transcript")).toBeVisible();
-  }
+  // After a restart the title mounts a frame later. A one-shot count misses it
+  // and then asserts a transcript that is still hidden.
+  const header = window.locator('[data-testid="thread-title"], .chat-header__title').first();
+  await expect(header).toHaveText(sessionTitle);
 }
 
 /**

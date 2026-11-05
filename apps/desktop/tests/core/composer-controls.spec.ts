@@ -236,6 +236,7 @@ test("dark mode keeps the send button visible before and after typing", async ()
     await selectSession(window, "Dark send button session");
 
     const sendButton = window.getByTestId("send");
+    await expect(window.locator("footer.composer")).toHaveAttribute("data-composer-ready", "true");
     await expect(sendButton).toBeDisabled();
     await expect
       .poll(async () => {
@@ -250,7 +251,12 @@ test("dark mode keeps the send button visible before and after typing", async ()
       })
       .toBeGreaterThan(3);
 
-    await window.getByTestId("composer").fill("make the arrow visible");
+    const composer = window.getByTestId("composer");
+    await composer.click();
+    // fill() can set the DOM value on macOS without React's onChange, leaving
+    // the send button disabled. Keystrokes update the composer state.
+    await composer.pressSequentially("make the arrow visible");
+    await expect(composer).toHaveValue("make the arrow visible");
     await expect(sendButton).toBeEnabled();
     await expect
       .poll(async () => {

@@ -46,11 +46,10 @@ Root `pnpm e2e` delegates to the desktop core command, which builds first and
 uses the canonical desktop Playwright configuration. The root Playwright config
 shares that configuration instead of maintaining weaker independent defaults.
 
-The Electron Core suite runs on four shards with `--shard=N/4`. Pull requests
-run it on Ubuntu under Xvfb and openbox with two Playwright workers per runner,
-so PRs don't queue for the account's few macOS runners. Pushes to `main` run
-the same Linux lane and the macOS lane (one worker per macOS runner), so a
-Linux-only break is caught on main and macOS-only specs still gate there.
+The Electron Core suite runs on four shards with `--shard=N/4`. Pull requests,
+pushes to `main`, and manual `workflow_dispatch` runs all schedule the Ubuntu
+Xvfb lane (two Playwright workers per runner) and the macOS lane (one worker
+per runner). macOS-only specs gate on the pull request, not only after merge.
 File groups are assigned automatically; every shard must pass the stable
 `desktop-core` aggregate. Per-shard JSON reports, file timing summaries, and
 failure artifacts are retained. Discovery guards prove the four shards cover
