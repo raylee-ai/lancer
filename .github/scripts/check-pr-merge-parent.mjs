@@ -79,7 +79,11 @@ export function checkPullRequestMergeParent(options = {}) {
   const log = options.log ?? console.log;
   const head = git(["rev-parse", "HEAD"], cwd);
   const subject = git(["log", "-1", "--format=%s"], cwd);
-  const parents = git(["log", "-1", "--format=%P"], cwd).split(/\s+/).filter(Boolean);
+  // A depth-1 checkout hides parents from git log. The commit object still lists them.
+  const parents = git(["cat-file", "-p", "HEAD"], cwd)
+    .split("\n")
+    .filter((line) => line.startsWith("parent "))
+    .map((line) => line.slice("parent ".length).trim());
   log(`HEAD ${head}`);
   log(`Subject: ${subject}`);
   let baseTip;

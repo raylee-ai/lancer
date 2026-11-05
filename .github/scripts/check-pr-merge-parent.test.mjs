@@ -72,6 +72,18 @@ test("the checkout reader prints both parents of a real merge commit", async () 
     assert.equal(parents[0], baseTip);
     assert.equal(parents.length, 2);
     assert.match(lines.join("\n"), new RegExp(parents.join(" ")));
+
+    const shallow = path.join(root, "shallow");
+    git(["clone", "--depth", "1", `file://${root}`, shallow]);
+    assert.equal(git(["log", "-1", "--format=%P"], shallow).trim(), "");
+    const shallowLines = [];
+    const shallowResult = checkPullRequestMergeParent({
+      cwd: shallow,
+      eventName: "push",
+      log: (line) => shallowLines.push(line),
+    });
+    assert.equal(shallowResult.ok, true);
+    assert.match(shallowLines.join("\n"), new RegExp(parents.join(" ")));
   } finally {
     await rm(root, { recursive: true, force: true });
   }
