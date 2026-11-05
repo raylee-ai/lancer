@@ -63,7 +63,7 @@ test("workflow aggregate covers every job and cannot ignore unsuccessful checks"
   const sorted = (values) => [...values].sort();
   assert.deepEqual(
     sorted(Object.keys(workflow.jobs).filter((job) => job !== "ci-required")),
-    sorted([...requiredJobs, ...coreShardJobs]),
+    sorted([...requiredJobs, ...coreShardJobs, "desktop-core-matrix"]),
   );
   assert.deepEqual(sorted(gate.needs), sorted(requiredJobs));
   assert.equal(gate.name, "CI required");
@@ -129,18 +129,21 @@ function assertCoreShards(workflow) {
   assert.ok(check, "Core gate must validate shard results");
   assert.equal(check.env.CI_NEEDS, "${{ toJSON(needs) }}");
   assert.equal(check.if, undefined);
-  const matrix = workflow.jobs["desktop-core-shards"];
+  const planner = workflow.jobs["desktop-core-matrix"];
+  assert.equal(planner["runs-on"], "ubuntu-latest");
   assert.equal(
-    matrix.if,
-    "${{ matrix.os == 'ubuntu-latest' || github.event_name != 'pull_request' }}",
+    planner.steps.find((step) => step.id === "plan")?.run,
+    'node .github/scripts/desktop-core-matrix.mjs >> "$GITHUB_OUTPUT"',
   );
+  const matrix = workflow.jobs["desktop-core-shards"];
+  assert.equal(matrix.if, undefined);
+  assert.equal(matrix.needs, "desktop-core-matrix");
   assert.deepEqual(matrix.strategy.matrix, {
-    os: ["ubuntu-latest", "macos-latest"],
-    shard: [1, 2, 3, 4],
+    include: "${{ fromJSON(needs.desktop-core-matrix.outputs.include) }}",
   });
   assert.equal(matrix.strategy["fail-fast"], false);
-  // PRs run Core on Linux. Pushes to main run Linux and macOS. macOS cells are not
-  // scheduled for pull requests, so they do not queue behind the account's macOS slots.
+  // The planner emits Linux cells for pull requests and Linux plus macOS for pushes.
+  // matrix is not valid in a job-level if, so unscheduled macOS cells never start.
   assert.equal(matrix["runs-on"], "${{ matrix.os }}");
   const mac = matrix.steps.find((step) => step.name === "Desktop Core (macOS)");
   assert.equal(mac.if, "${{ runner.os == 'macOS' }}");
@@ -179,7 +182,7 @@ test("all Core shards are required and retain independent reports", () => {
       w.jobs["desktop-core"].if = "success()";
     },
     (w) => {
-      w.jobs["desktop-core-shards"].strategy.matrix.shard = [1, 2, 3];
+      w.jobs["desktop-core-shards"].strategy.matrix.include = "[]";
     },
     (w) => {
       w.jobs["desktop-core-shards"].steps.find((s) => s.name === "Desktop Core (macOS)").run =

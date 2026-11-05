@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { prepareAppImageTools } from "./appimage-tools.mjs";
 import { withGithubDownloadRetry } from "./github-download-retry.mjs";
 import { releaseHomepage } from "./release-homepage.mjs";
 
@@ -66,6 +67,11 @@ export async function runElectronBuilder(electronBuilderArgs) {
   if (homepage)
     electronBuilderArgs = [...electronBuilderArgs, `-c.extraMetadata.homepage=${homepage}`];
   const signingEnv = {};
+  if (electronBuilderArgs.includes("--linux") && !electronBuilderArgs.includes("--dir")) {
+    // The pinned AppImage toolset exports an old libm before calling basename.
+    // Newer GitHub runners then fail mksquashfs with GLIBC_2.43 not found.
+    signingEnv.APPIMAGE_TOOLS_PATH = await prepareAppImageTools(cacheRoot);
+  }
   if (process.platform === "darwin" && electronBuilderArgs.includes("--mac")) {
     const configPath = path.join(
       os.homedir(),

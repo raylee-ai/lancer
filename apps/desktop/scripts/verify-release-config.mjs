@@ -196,6 +196,11 @@ function validateGithubDownloadRetry(retrySource, packageWindowsSource, runElect
     "electron-builder runner must retry GitHub downloads and keep a local binary cache",
   );
   assert(
+    runElectronBuilderSource.includes("prepareAppImageTools") &&
+      runElectronBuilderSource.includes("APPIMAGE_TOOLS_PATH"),
+    "Linux AppImage builds must use the patched tool wrapper so mksquashfs survives newer glibc",
+  );
+  assert(
     packageWindowsSource.includes('from "./run-electron-builder.mjs"') &&
       packageWindowsSource.includes("runElectronBuilder"),
     "Windows packaging must use the retrying electron-builder runner",

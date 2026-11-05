@@ -120,18 +120,36 @@ jobs:
           CI_NEEDS: ${{ toJSON(needs) }}
         run: node scripts/check-ci-results.mjs --core-shards
 
+  desktop-core-matrix:
+    name: desktop-core-matrix
+    runs-on: ubuntu-latest
+    outputs:
+      include: ${{ steps.plan.outputs.include }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Verify pull request merge parent
+        if: github.event_name == 'pull_request'
+        run: node .github/scripts/check-pr-merge-parent.mjs
+
+      - id: plan
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        # matrix is not a valid context in a job-level if. Schedule only the
+        # cells that should run: Linux on pull requests, Linux and macOS on main.
+        run: node .github/scripts/desktop-core-matrix.mjs >> "$GITHUB_OUTPUT"
+
   desktop-core-shards:
     name: Desktop Core (${{ matrix.os }} ${{ matrix.shard }}/4)
     # PRs run Core on Linux, which doesn't queue behind the account's few macOS slots.
     # Pushes to main run Linux and macOS, so a Linux-only break is caught on main too.
-    if: ${{ matrix.os == 'ubuntu-latest' || github.event_name != 'pull_request' }}
+    needs: desktop-core-matrix
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
-        shard: [1, 2, 3, 4]
+        include: ${{ fromJSON(needs.desktop-core-matrix.outputs.include) }}
 
     steps:
       - uses: actions/checkout@v7
