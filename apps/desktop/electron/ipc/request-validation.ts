@@ -230,6 +230,7 @@ export function expectCreateSessionInput(value: unknown): CreateSessionInput {
   return {
     workspaceId: expectNonEmptyString(record.workspaceId, "input.workspaceId"),
     title: expectOptionalString(record.title, "input.title"),
+    useWorktree: expectOptionalBoolean(record.useWorktree, "input.useWorktree"),
   };
 }
 
@@ -252,6 +253,7 @@ export function expectStartThreadInput(value: unknown): StartThreadInput {
     provider: expectOptionalNonEmptyString(record.provider, "input.provider"),
     modelId: expectOptionalNonEmptyString(record.modelId, "input.modelId"),
     thinkingLevel: expectOptionalString(record.thinkingLevel, "input.thinkingLevel"),
+    useWorktree: expectOptionalBoolean(record.useWorktree, "input.useWorktree"),
   };
 }
 

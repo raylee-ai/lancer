@@ -42,6 +42,7 @@ import type {
   ComposerAttachment,
   CreateSessionInput,
   CreateWorktreeInput,
+  SessionWorktreeDiff,
   DesktopAppState,
   ForkThreadInput,
   ModelSettingsScopeMode,
@@ -691,6 +692,9 @@ export interface PiDesktopApi {
   markSessionRead(target: WorkspaceSessionTarget): Promise<DesktopAppState>;
   setSessionPinned(target: WorkspaceSessionTarget, pinned: boolean): Promise<DesktopAppState>;
   createSession(input: CreateSessionInput): Promise<DesktopAppState>;
+  getSessionWorktreeDiff(target: WorkspaceSessionTarget): Promise<SessionWorktreeDiff>;
+  mergeSessionWorktree(target: WorkspaceSessionTarget): Promise<DesktopAppState>;
+  discardSessionWorktree(target: WorkspaceSessionTarget): Promise<DesktopAppState>;
   startThread(input: StartThreadInput): Promise<DesktopAppState>;
   forkThread(input: ForkThreadInput): Promise<DesktopAppState>;
   sendChildThreadFollowUp(input: SendChildThreadFollowUpInput): Promise<DesktopAppState>;

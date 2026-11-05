@@ -245,3 +245,31 @@ await test("invalid lane fields fail decoding and leave saved bytes unchanged", 
     /Invalid catalog file contents/,
   );
 });
+
+await test("session worktree metadata round-trips and null clears it", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "pi-session-worktree-meta-"));
+  const catalogFilePath = join(dir, "catalog.json");
+  const store = new JsonCatalogStore({ catalogFilePath });
+  await store.sessions.upsertSession({
+    ...session,
+    worktreePath: "/repo/.git/lancer-worktrees/session",
+    worktreeBranch: "lancer/session",
+    worktreeBaseBranch: "main",
+    worktreeBaseSha: "abc1234",
+  });
+  const reopened = new JsonCatalogStore({ catalogFilePath });
+  assert.equal(
+    (await reopened.sessions.getControlMetadata(session.sessionRef))?.worktreeBranch,
+    "lancer/session",
+  );
+  await reopened.sessions.updateControlMetadata(session.sessionRef, {
+    worktreePath: null,
+    worktreeBranch: null,
+    worktreeBaseBranch: null,
+    worktreeBaseSha: null,
+  });
+  const cleared = await reopened.sessions.getControlMetadata(session.sessionRef);
+  assert.equal(cleared?.worktreePath, null);
+  assert.equal(cleared?.worktreeBranch, null);
+  assert.throws(() => parseState(serialized({ ...session, worktreePath: 1 }), "catalog.json"));
+});

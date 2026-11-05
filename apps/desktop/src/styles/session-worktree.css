@@ -1,0 +1,94 @@
+.session-worktree {
+  display: grid;
+  gap: 6px;
+  margin: 0 auto 8px;
+  width: min(820px, 100%);
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-muted);
+}
+
+.session-worktree__summary,
+.session-worktree__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.session-worktree__branch {
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.session-worktree__path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--muted-soft);
+}
+
+.session-worktree__actions button,
+.session-worktree__dialog-header button {
+  padding: 4px 8px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text-strong);
+  font: inherit;
+  font-size: 12px;
+}
+
+.session-worktree__error {
+  margin: 0;
+  color: var(--danger, #b42318);
+  font-size: 12px;
+}
+
+.session-worktree__dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: color-mix(in srgb, var(--text-strong) 28%, transparent);
+}
+
+.session-worktree__dialog-card {
+  width: min(880px, 100%);
+  max-height: min(80vh, 720px);
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: 8px;
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text-strong);
+}
+
+.session-worktree__dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.session-worktree__stat,
+.session-worktree__patch {
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.session-worktree__patch {
+  min-height: 0;
+}

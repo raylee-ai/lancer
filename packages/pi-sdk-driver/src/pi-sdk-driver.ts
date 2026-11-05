@@ -58,6 +58,10 @@ export class PiSdkDriver implements SessionDriver {
     return this.supervisor.createSession(workspace, options);
   }
 
+  retargetExecutionCwd(sessionRef: SessionRef): Promise<void> {
+    return this.supervisor.retargetExecutionCwd(sessionRef);
+  }
+
   validateForkSession(sourceRef: SessionRef, options: ForkSessionOptions): Promise<void> {
     return this.supervisor.validateForkSession(sourceRef, options);
   }

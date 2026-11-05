@@ -1682,6 +1682,11 @@ const ThreadSessionRow = forwardRef<HTMLDivElement, ThreadSessionRowProps>(
             <span className="session-row__body">
               <span className="session-row__title-line">
                 <span className="session-row__title">{thread.session.title}</span>
+                {thread.session.worktree ? (
+                  <span className="session-row__branch" title={thread.session.worktree.path}>
+                    {thread.session.worktree.branch}
+                  </span>
+                ) : null}
               </span>
               {showContext ? (
                 <span className="session-row__context">{thread.contextLabel}</span>

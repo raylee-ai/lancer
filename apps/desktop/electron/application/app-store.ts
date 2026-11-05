@@ -70,6 +70,7 @@ import {
   type SendChildThreadFollowUpInput,
   type SetChildSupervisionLoopInput,
   type SelectedTranscriptRecord,
+  type SessionWorktreeDiff,
   type StartThreadInput,
   type StartupDiagnostic,
   type ThemeMode,
@@ -1270,6 +1271,18 @@ export class DesktopAppStore {
 
   async createSession(input: CreateSessionInput): Promise<DesktopAppState> {
     return this.workspaceOwner.createSession(input);
+  }
+
+  getSessionWorktreeDiff(target: WorkspaceSessionTarget): Promise<SessionWorktreeDiff> {
+    return this.workspaceOwner.getSessionWorktreeDiff(target);
+  }
+
+  mergeSessionWorktree(target: WorkspaceSessionTarget): Promise<DesktopAppState> {
+    return this.workspaceOwner.mergeSessionWorktree(target);
+  }
+
+  discardSessionWorktree(target: WorkspaceSessionTarget): Promise<DesktopAppState> {
+    return this.workspaceOwner.discardSessionWorktree(target);
   }
 
   async lancerAction(raw: unknown): Promise<DesktopAppState> {

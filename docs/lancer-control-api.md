@@ -37,9 +37,10 @@ Linux 使用 `$XDG_CONFIG_HOME/Lancer`（未设置时 `~/.config/Lancer`）。�
 ./scripts/lancer-ctl wait '<session-id>' --timeout 600
 ./scripts/lancer-ctl new --cwd /path/to/repo --zone research \
   --model provider/model-id --name '本地调研' '阅读仓库并说明入口'
+./scripts/lancer-ctl new --cwd /path/to/repo --worktree --name '隔离实验' '在独立分支上修改'
 ```
 
-所有命令都支持 `--user-data-dir /path/to/profile`。可把仓库 `scripts/` 加入 PATH；不要仅复制 shell 入口而遗漏同目录的 `lancer-ctl.mjs`。`new` 也支持 `--file`，正文与位置参数二选一。以 `-` 开头的正文可放在 `--` 后。
+所有命令都支持 `--user-data-dir /path/to/profile`。可把仓库 `scripts/` 加入 PATH；不要仅复制 shell 入口而遗漏同目录的 `lancer-ctl.mjs`。`new` 也支持 `--file`，正文与位置参数二选一。以 `-` 开头的正文可放在 `--` 后。`--worktree` 在 `--cwd` 是 Git 仓库时为新会话创建 `lancer/<session-id>` 分支和独立 worktree，Agent 的读写和 bash 在该检出中执行；非 Git 目录忽略该选项。设计见 [会话工作树](session-worktrees.md)。
 
 会话选择依次匹配完整 `workspaceId:sessionId`、完整 session id、忽略大小写的标题片段。多个命中会报 `AMBIGUOUS_SESSION` 并列出完整标识，绝不猜测目标。完整标题也仍按片段规则检查歧义。列表包含当前应用 catalog 中所有工作区会话（含已归档），不扫描未注册工作区。
 
@@ -67,7 +68,7 @@ Linux 使用 `$XDG_CONFIG_HOME/Lancer`（未设置时 `~/.config/Lancer`）。�
 
 ### 输出与等待
 
-- `sessions --json`：`{ sessions: [...] }`；每项包含 `id/sessionId`、`workspaceId`、去分区前缀的 `title`、`rawTitle`、`zoneId/zone`、工作区名 `workspace`、`cwd`、`model`、`modelSource`、`thinkingLevel`（已知会话值，否则 null）、`status`、`archived`、`updatedAt`、`pending` 和最近本地派发 `submission`。
+- `sessions --json`：`{ sessions: [...] }`；每项包含 `id/sessionId`、`workspaceId`、去分区前缀的 `title`、`rawTitle`、`zoneId/zone`、工作区名 `workspace`、`cwd`、`executionCwd`、`model`、`modelSource`、`thinkingLevel`（已知会话值，否则 null）、`status`、`archived`、`updatedAt`、`pending` 和最近本地派发 `submission`。有会话 worktree 时还有 `worktreePath`、`worktreeBranch`、`worktreeBaseBranch`。`cwd` 是工作区目录，`executionCwd` 是 Agent 实际目录。
 - `modelSource`：`session` 是已知会话模型；`workspace-default` 表示尚无会话模型记录时的当前默认值；无法确定则 `unknown` 且 `model: null`，不会为列列表强制打开所有历史会话。
 - `status`：`idle`、`running`、`waiting`（有待用户处理的扩展/UI 对话）、`failed`。`pending` 覆盖控制派发尚未反映为 running 的启动/收尾窗口。
 - `tail --json`：`session`、`messages`（最近 N 个消息/工具/阶段条目）、独立的 `lastAssistant`（最新助手文本全文，不受 N 截断）、`done`、`outcome`、可选 `error`。N 默认 20，允许 1–1000。使用主进程 transcript 缓存/既有加载路径，不直接解析 session 文件。
@@ -92,6 +93,7 @@ HTTP/1.1 **只在 Unix socket 上**：`POST /v1`，`Authorization: Bearer <contr
 { "operation": "tail", "session": "sessionId", "n": 20 }
 { "operation": "wait", "session": "sessionId" }
 { "operation": "new", "cwd": "/absolute/repo", "zone": "research", "model": "provider/id", "name": "调研", "message": "开始" }
+{ "operation": "new", "cwd": "/absolute/repo", "worktree": true, "name": "隔离", "message": "开始" }
 ```
 
 上面的每行是一个独立请求；wire `wait` 只返回一次状态快照，阻塞/轮询由调用方实现。成功为 `{ "ok": true, "result": ... }`，失败为 `{ "ok": false, "error": { "code": "...", "message": "..." } }`。
@@ -157,7 +159,7 @@ curl --unix-socket "$PROFILE/control.sock" \
 - `elapsed` 单位为毫秒；无可靠开始/结束时间时为 null（已观察但尚未开始的运行可为 0）。日志打码覆盖敏感参数、已识别的敏感值与常见凭据格式，不是任意自然语言内容的秘密检测器，调用方不应让模型输出凭据。
 - lane 状态为 `running | queued | waiting | done | failed | idle`；waiting 表示等待人工，done 表示最近运行正常结束且无后续，failed 表示异常/中断，idle 表示未运行或已确认。运行元数据还包括 `finishedAt`；stage/progress 没有数据时为 null，不推测完成比例。旧 sessions/tail/wait 兼容语义以各自回执为准。
 - `stop` 与界面停止按钮等价且幂等，不删除会话。
-- `set-result` 的 path 原样传给服务端，以会话工作区解析相对路径；服务端必须校验 realpath containment，拒绝工作区外路径及符号链接逃逸。CLI 不以自身 cwd 提前解析它。
+- `set-result` 的 path 原样传给服务端，以会话的 `executionCwd`（有 worktree 时是 worktree，否则是工作区）解析相对路径；服务端必须校验 realpath containment，拒绝该目录外路径及符号链接逃逸。CLI 不以自身 cwd 提前解析它。
 - `set-stage` 至少传一个字段；省略的字段不修改，字面量 `null` 清空对应字段。stage 是可选短字符串，progress 是 0..1 或 null；服务端负责最终字段约束校验。
 
 ## 验证
@@ -177,4 +179,4 @@ PI_APP_REAL_AUTH=0 PI_APP_TEST_MODE=background \
 
 `./scripts/lancer-ctl new --draft --cwd /path/to/project --zone video --name '待办 · 下载视频'`
 
-`--draft` 只复用原会话创建与分区路径，不发送消息、不调用模型；不能同时传正文或 `--file`。回执 `created: true, started: false` 表示空会话已建立，不表示任务完成。省略 `--model` 沿用当前默认模型，任务名称不代表已配置该任务所需的其他模型。Wire API 为 `operation: "new", draft: true`，不含 `message`。
+`--draft` 只复用原会话创建与分区路径，不发送消息、不调用模型；不能同时传正文或 `--file`。回执 `created: true, started: false` 表示空会话已建立，不表示任务完成。省略 `--model` 沿用当前默认模型，任务名称不代表已配置该任务所需的其他模型。Wire API 为 `operation: "new", draft: true`，不含 `message`。`--draft` 可以和 `--worktree` 一起用。`new` 的成功回执包含 `worktree`：未创建时为 `null`，否则为 `{ path, branch, baseBranch }`。

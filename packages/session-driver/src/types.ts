@@ -34,6 +34,17 @@ export interface SessionRuntimeMetadata {
   progress?: number | null;
   /** Writers must validate workspace realpath containment before setting this. */
   resultPath?: string;
+  /**
+   * Absolute worktree this session's agent reads, writes, and runs bash in.
+   * Absent or null means the session uses its workspace directory.
+   */
+  worktreePath?: string | null;
+  /** Branch checked out in `worktreePath`, such as `lancer/<session-id>`. */
+  worktreeBranch?: string | null;
+  /** Branch the workspace was on when the worktree was created. Empty when detached. */
+  worktreeBaseBranch?: string | null;
+  /** Commit the session branch was created from. */
+  worktreeBaseSha?: string | null;
 }
 
 /** Compatibility name for lane runtime metadata. */
@@ -147,6 +158,12 @@ export interface CreateSessionOptions {
   readonly title?: string;
   readonly initialModel?: SessionModelSelection;
   readonly initialThinkingLevel?: string;
+  /**
+   * Called after the session id exists and before the agent runtime starts.
+   * Return an absolute directory to use as the agent cwd. Session files stay
+   * with the workspace. Return undefined to keep the workspace directory.
+   */
+  readonly resolveExecutionCwd?: (sessionId: string) => Promise<string | undefined>;
 }
 
 export type ForkPosition = "before" | "at" | "after";
