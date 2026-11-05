@@ -35,6 +35,7 @@ interface NewThreadViewProps {
   readonly selectedWorkspaceId: string;
   readonly runtime?: RuntimeSnapshot;
   readonly environment: NewThreadEnvironment;
+  readonly useWorktree: boolean;
   readonly prompt: string;
   readonly attachments: readonly ComposerAttachment[];
   readonly lastError?: string;
@@ -57,6 +58,7 @@ interface NewThreadViewProps {
   readonly selectedMentionIndex: number;
   readonly onChangePrompt: (prompt: string) => void;
   readonly onSelectEnvironment: (environment: NewThreadEnvironment) => void;
+  readonly onToggleWorktree: (enabled: boolean) => void;
   readonly onSelectWorkspace: (workspaceId: string) => void;
   readonly onOpenFolder?: () => void;
   readonly onSetModel: (provider: string, modelId: string) => void;
@@ -83,6 +85,7 @@ export function NewThreadView({
   selectedWorkspaceId,
   runtime,
   environment,
+  useWorktree,
   prompt,
   attachments,
   lastError,
@@ -105,6 +108,7 @@ export function NewThreadView({
   selectedMentionIndex,
   onChangePrompt,
   onSelectEnvironment,
+  onToggleWorktree,
   onSelectWorkspace,
   onOpenFolder,
   onSetModel,
@@ -229,6 +233,7 @@ export function NewThreadView({
                   onSelectDoubaoApp={onSelectDoubaoApp}
                   runtime={runtime}
                   environment={environment}
+                  useWorktree={useWorktree}
                   provider={provider}
                   modelId={modelId}
                   thinkingLevel={thinkingLevel}
@@ -236,6 +241,7 @@ export function NewThreadView({
                   hasContent={Boolean(prompt.trim() || attachments.length > 0)}
                   fileInputRef={fileInputRef}
                   onSelectEnvironment={onSelectEnvironment}
+                  onToggleWorktree={onToggleWorktree}
                   onSetModel={onSetModel}
                   onSetThinking={onSetThinking}
                   onAddAttachments={onAddAttachments}
@@ -254,6 +260,7 @@ interface NewThreadComposerFooterProps {
   readonly onSelectDoubaoApp?: () => void;
   readonly runtime?: RuntimeSnapshot;
   readonly environment: NewThreadEnvironment;
+  readonly useWorktree: boolean;
   readonly provider: string | undefined;
   readonly modelId: string | undefined;
   readonly thinkingLevel: string | undefined;
@@ -261,6 +268,7 @@ interface NewThreadComposerFooterProps {
   readonly hasContent: boolean;
   readonly fileInputRef: RefObject<HTMLInputElement | null>;
   readonly onSelectEnvironment: (environment: NewThreadEnvironment) => void;
+  readonly onToggleWorktree: (enabled: boolean) => void;
   readonly onSetModel: (provider: string, modelId: string) => void;
   readonly onSetThinking: (level: string) => void;
   readonly onAddAttachments: (files: File[]) => void;
@@ -271,6 +279,7 @@ function NewThreadComposerFooter({
   onSelectDoubaoApp,
   runtime,
   environment,
+  useWorktree,
   provider,
   modelId,
   thinkingLevel,
@@ -278,6 +287,7 @@ function NewThreadComposerFooter({
   hasContent,
   fileInputRef,
   onSelectEnvironment,
+  onToggleWorktree,
   onSetModel,
   onSetThinking,
   onAddAttachments,
@@ -303,6 +313,19 @@ function NewThreadComposerFooter({
               >
                 <span>{t("threads.newThread.worktree")}</span>
               </button>
+              <label
+                className={`new-thread__isolate ${environment === "worktree" ? "new-thread__isolate--disabled" : ""}`}
+                title={t("threads.newThread.isolateHint")}
+              >
+                <input
+                  type="checkbox"
+                  data-testid="new-thread-worktree"
+                  checked={environment === "local" && useWorktree}
+                  disabled={environment === "worktree"}
+                  onChange={(event) => onToggleWorktree(event.target.checked)}
+                />
+                <span>{t("threads.newThread.isolate")}</span>
+              </label>
             </div>
             <span className="new-thread__hint-separator">·</span>
             <ModelSelector

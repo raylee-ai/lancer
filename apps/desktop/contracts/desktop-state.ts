@@ -98,6 +98,19 @@ export interface QueuedComposerMessage {
   readonly updatedAt: string;
 }
 
+export interface SessionWorktreeInfo {
+  readonly path: string;
+  readonly branch: string;
+  readonly baseBranch: string;
+}
+
+export interface SessionWorktreeDiff extends SessionWorktreeInfo {
+  readonly baseSha: string;
+  readonly stat: string;
+  readonly patch: string;
+  readonly truncated: boolean;
+}
+
 export interface SessionRecord {
   readonly id: string;
   readonly title: string;
@@ -112,6 +125,8 @@ export interface SessionRecord {
   readonly runningSince?: string;
   readonly hasUnseenUpdate: boolean;
   readonly config?: SessionConfig;
+  /** Set when this session's agent runs in its own git worktree. */
+  readonly worktree?: SessionWorktreeInfo;
 }
 
 export type OrchestrationChildThreadStatus =
@@ -292,6 +307,11 @@ export type StartThreadInput = {
   readonly provider?: string;
   readonly modelId?: string;
   readonly thinkingLevel?: string;
+  /**
+   * When true and the folder is a Git repository, the new session runs in its
+   * own `lancer/<session-id>` worktree. Non-Git folders ignore the flag.
+   */
+  readonly useWorktree?: boolean;
 };
 
 export type ForkThreadPosition = "before" | "at" | "after";
@@ -371,6 +391,8 @@ export interface DesktopAppState {
 export interface CreateSessionInput {
   readonly workspaceId: string;
   readonly title?: string;
+  /** See `StartThreadInput.useWorktree`. Ignored for non-Git folders. */
+  readonly useWorktree?: boolean;
 }
 
 export interface WorkspaceSessionTarget {

@@ -142,6 +142,9 @@ test("control resolves exact identity, rejects ambiguous titles and validates in
   await expect(
     service.handle({ operation: "new", cwd: "/tmp", message: "hi", zone: "invalid" }),
   ).rejects.toMatchObject({ code: "INVALID_REQUEST" });
+  await expect(
+    service.handle({ operation: "new", cwd: "/tmp", message: "hi", worktree: "yes" }),
+  ).rejects.toMatchObject({ code: "INVALID_REQUEST" });
   f.set({
     globalModelSettings: {
       defaultProvider: "default",
@@ -456,4 +459,23 @@ test("draft creation never dispatches a model message and rejects mixed intent",
     f.service.handle({ operation: "new", draft: "yes", cwd: "/tmp" }),
   ).rejects.toMatchObject({ code: "INVALID_REQUEST" });
   expect(f.deliveries).toHaveLength(1);
+});
+
+test("new forwards a worktree request and reports none until the app records one", async () => {
+  const f = fixture();
+  await expect(
+    f.service.handle({
+      operation: "new",
+      cwd: "/tmp",
+      draft: true,
+      name: "isolated",
+      worktree: true,
+    }),
+  ).resolves.toMatchObject({ created: true, started: false, worktree: null });
+  expect(f.deliveries.at(-1)).toEqual({
+    cwd: "/tmp",
+    model: undefined,
+    name: "isolated",
+    worktree: true,
+  });
 });

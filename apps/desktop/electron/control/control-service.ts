@@ -75,6 +75,7 @@ export class ControlService {
       cwd: string;
       model?: string;
       name?: string;
+      worktree?: boolean;
     }) => Promise<SessionRef>,
   ) {
     store.subscribe?.((state) => {
@@ -150,6 +151,10 @@ export class ControlService {
           zone: lancerZoneById(conversationZoneId(session.title)).label,
           workspace: workspace.name,
           cwd: workspace.path,
+          executionCwd:
+            typeof saved?.worktreePath === "string" && saved.worktreePath
+              ? saved.worktreePath
+              : workspace.path,
           model: explicitModel ?? defaultModel,
           thinkingLevel: session.config?.thinkingLevel ?? null,
           modelSource: explicitModel ? "session" : defaultModel ? "workspace-default" : "unknown",
@@ -327,7 +332,14 @@ export class ControlService {
         input.orchestrator === undefined ? undefined : text(input.orchestrator, "orchestrator");
       if (input.role !== undefined && input.role !== "lead" && input.role !== "lane")
         throw new ControlError("INVALID_REQUEST", "role must be lead or lane");
-      const ref = await this.create({ cwd, model, name });
+      if (input.worktree !== undefined && typeof input.worktree !== "boolean")
+        throw new ControlError("INVALID_REQUEST", "worktree must be boolean");
+      const ref = await this.create({
+        cwd,
+        model,
+        name,
+        ...(input.worktree === true ? { worktree: true } : {}),
+      });
       if (group || orchestratorId || input.role) {
         await this.updateMetadata(ref, {
           laneGroup: group,
@@ -337,8 +349,9 @@ export class ControlService {
       }
       if (!this.store.snapshot().localControlEnabled)
         throw new ControlError("DISABLED", "Local control was disabled");
-      if (message === undefined) return { created: true, started: false, ...ref };
-      return this.send(ref, message, "send");
+      const worktree = await this.worktreeSummary(ref);
+      if (message === undefined) return { created: true, started: false, ...ref, worktree };
+      return { ...(await this.send(ref, message, "send")), worktree };
     }
     const ref = this.resolve(input.session, snapshot);
     if (operation === "logs") {
@@ -388,7 +401,7 @@ export class ControlService {
       return { session: ref, thinkingLevel: this.session(ref, state).thinkingLevel };
     }
     if (operation === "set-result") {
-      const workspace = this.session(ref).cwd;
+      const workspace = this.session(ref).executionCwd;
       const root = await realpath(workspace);
       const path = await realpath(resolve(root, text(input.path, "path")));
       const inside = relative(root, path);
@@ -461,6 +474,18 @@ export class ControlService {
       ...result,
       messages: transcript.slice(-n),
       lastAssistant: lastAssistant?.kind === "message" ? lastAssistant.text : null,
+    };
+  }
+
+  private async worktreeSummary(
+    ref: SessionRef,
+  ): Promise<{ path: string; branch: string; baseBranch: string | null } | null> {
+    const meta = this.store.getControlMetadata ? await this.store.getControlMetadata(ref) : null;
+    if (!meta?.worktreePath || !meta.worktreeBranch) return null;
+    return {
+      path: meta.worktreePath,
+      branch: meta.worktreeBranch,
+      baseBranch: meta.worktreeBaseBranch ?? null,
     };
   }
 

@@ -13,6 +13,7 @@ import type {
 import type { CreateWorktreeOptions } from "../platform/worktrees/worktree-manager";
 import type { WorkspaceOwnerHost } from "./app-store-workspace";
 import { NEW_THREAD_PLACEHOLDER_TITLE } from "../conversation/thread-title-constants";
+import { createSessionWithWorktree } from "./session-worktree-sessions";
 
 /* ── Public methods ─────────────────────────────────────── */
 
@@ -139,11 +140,12 @@ export async function startThread(
           ? { provider: input.provider, modelId: input.modelId }
           : createOptions.initialModel;
       initialThinkingLevel = input.thinkingLevel ?? createOptions.initialThinkingLevel;
-      session = await store.driver.createSession(targetWorkspace, {
+      session = await createSessionWithWorktree(store, targetWorkspace, {
         ...createOptions,
         title: NEW_THREAD_PLACEHOLDER_TITLE,
         ...(initialModel ? { initialModel } : {}),
         ...(initialThinkingLevel ? { initialThinkingLevel } : {}),
+        useWorktree: input.useWorktree === true,
       });
     } catch (error) {
       if (rollbackWorktree) {

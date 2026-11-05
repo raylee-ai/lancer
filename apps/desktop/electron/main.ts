@@ -1135,7 +1135,7 @@ app
       },
     });
     await store.initialize();
-    const controlService = new ControlService(store, async ({ cwd, model, name }) => {
+    const controlService = new ControlService(store, async ({ cwd, model, name, worktree }) => {
       const fullPath = path.resolve(cwd);
       if (!(await stat(fullPath)).isDirectory()) throw new Error("cwd must be a directory");
       const window = windowOwner.foreground();
@@ -1150,7 +1150,11 @@ app
           workspace = added.workspaces.find((entry) => path.resolve(entry.path) === fullPath);
         }
         if (!workspace) throw new Error("Unable to register workspace");
-        const created = await store.createSession({ workspaceId: workspace.id, title: name });
+        const created = await store.createSession({
+          workspaceId: workspace.id,
+          title: name,
+          ...(worktree ? { useWorktree: true } : {}),
+        });
         if (created.lastError) throw new Error(created.lastError);
         if (model) {
           const slash = model.indexOf("/");

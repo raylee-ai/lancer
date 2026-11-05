@@ -67,6 +67,7 @@ export function useNewThreadController(params: UseNewThreadControllerParams) {
   const [pendingWorkspaceId, setPendingWorkspaceId] = useState("");
   const [rootWorkspaceId, setRootWorkspaceId] = useState("");
   const [environment, setEnvironment] = useState<NewThreadEnvironment>("local");
+  const [useWorktree, setUseWorktree] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [attachments, setAttachments] = useState<readonly ComposerAttachment[]>([]);
   const [provider, setProvider] = useState<string | undefined>();
@@ -337,6 +338,7 @@ export function useNewThreadController(params: UseNewThreadControllerParams) {
       provider: resolvedProvider,
       modelId: resolvedModelId,
       thinkingLevel: resolvedThinkingLevel,
+      useWorktree: environment === "local" && useWorktree,
     };
     startingGenerationRef.current = generation;
     void updateSnapshot(setSnapshot, () => api.startThread(input))
@@ -350,6 +352,7 @@ export function useNewThreadController(params: UseNewThreadControllerParams) {
         setModelId(undefined);
         setThinkingLevel(undefined);
         setEnvironment("local");
+        setUseWorktree(false);
       })
       .catch((error: unknown) => {
         setComposerError(error instanceof Error ? error.message : String(error));
@@ -363,6 +366,7 @@ export function useNewThreadController(params: UseNewThreadControllerParams) {
     api,
     attachments,
     environment,
+    useWorktree,
     modelOnboarding.requiresModelSelection,
     params.assistantId,
     params.lancerZone,
@@ -509,6 +513,7 @@ export function useNewThreadController(params: UseNewThreadControllerParams) {
       runtime,
       rootWorkspaceId,
       environment,
+      useWorktree,
       prompt,
       attachments,
       composerError,
@@ -520,6 +525,7 @@ export function useNewThreadController(params: UseNewThreadControllerParams) {
       mentionMenu,
       setPrompt,
       setEnvironment,
+      setUseWorktree,
       setProvider,
       setModelId,
       setThinkingLevel,
@@ -542,6 +548,7 @@ export function useNewThreadController(params: UseNewThreadControllerParams) {
       runtime,
       rootWorkspaceId,
       environment,
+      useWorktree,
       prompt,
       attachments,
       composerError,

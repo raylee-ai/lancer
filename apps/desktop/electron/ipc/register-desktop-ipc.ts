@@ -110,6 +110,9 @@ type ConversationOwner = Pick<
   | "markSessionRead"
   | "setSessionPinned"
   | "createSession"
+  | "getSessionWorktreeDiff"
+  | "mergeSessionWorktree"
+  | "discardSessionWorktree"
   | "startThread"
   | "forkThread"
   | "cancelCurrentRun"
@@ -637,6 +640,16 @@ export function registerDesktopIpc({
 
   ipcMain.handle(desktopIpc.createSession, (event, rawInput: unknown) =>
     run(event, () => owners.conversation.createSession(expectCreateSessionInput(rawInput))),
+  );
+  ipcMain.handle(desktopIpc.getSessionWorktreeDiff, async (event, rawTarget: unknown) => {
+    windows.windowForSender(event.sender);
+    return owners.conversation.getSessionWorktreeDiff(expectSessionTarget(rawTarget));
+  });
+  ipcMain.handle(desktopIpc.mergeSessionWorktree, (event, rawTarget: unknown) =>
+    run(event, () => owners.conversation.mergeSessionWorktree(expectSessionTarget(rawTarget))),
+  );
+  ipcMain.handle(desktopIpc.discardSessionWorktree, (event, rawTarget: unknown) =>
+    run(event, () => owners.conversation.discardSessionWorktree(expectSessionTarget(rawTarget))),
   );
   ipcMain.handle(desktopIpc.startThread, (event, rawInput: unknown) => {
     const input = expectStartThreadInput(rawInput);

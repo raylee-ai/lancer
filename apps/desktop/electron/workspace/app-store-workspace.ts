@@ -15,6 +15,7 @@ import type {
   DesktopAppState,
   ForkThreadInput,
   RemoveWorktreeInput,
+  SessionWorktreeDiff,
   StartThreadInput,
   ComposerAttachment,
   WorkspaceSessionTarget,
@@ -25,6 +26,7 @@ import type { GitWorktreeManager } from "../platform/worktrees/worktree-manager"
 import { NEW_THREAD_PLACEHOLDER_TITLE } from "../conversation/thread-title-constants";
 import type { PendingAutoTitle } from "../conversation/session-state-map";
 import * as worktree from "./app-store-worktree";
+import * as sessionWorktrees from "./session-worktree-sessions";
 
 export interface WorkspaceStateView {
   readonly selectedWorkspaceId?: string;
@@ -36,6 +38,7 @@ type WorkspaceDriver = Pick<
   PiSdkDriver,
   | "archiveSession"
   | "createSession"
+  | "retargetExecutionCwd"
   | "forkSession"
   | "generateThreadTitle"
   | "removeWorkspace"
@@ -97,6 +100,9 @@ export interface WorkspaceOwner {
   archiveSession(target: WorkspaceSessionTarget): Promise<DesktopAppState>;
   unarchiveSession(target: WorkspaceSessionTarget): Promise<DesktopAppState>;
   createSession(input: CreateSessionInput): Promise<DesktopAppState>;
+  getSessionWorktreeDiff(target: WorkspaceSessionTarget): Promise<SessionWorktreeDiff>;
+  mergeSessionWorktree(target: WorkspaceSessionTarget): Promise<DesktopAppState>;
+  discardSessionWorktree(target: WorkspaceSessionTarget): Promise<DesktopAppState>;
   syncCurrentWorkspace(): Promise<DesktopAppState>;
   createWorktree(input: CreateWorktreeInput): Promise<DesktopAppState>;
   removeWorktree(input: RemoveWorktreeInput): Promise<DesktopAppState>;
@@ -119,6 +125,9 @@ export function createWorkspaceOwner(store: WorkspaceOwnerHost): WorkspaceOwner 
     archiveSession: (target) => archiveSession(store, target),
     unarchiveSession: (target) => unarchiveSession(store, target),
     createSession: (input) => createSession(store, input),
+    getSessionWorktreeDiff: (target) => sessionWorktrees.readSessionWorktreeDiff(store, target),
+    mergeSessionWorktree: (target) => sessionWorktrees.mergeSessionWorktree(store, target),
+    discardSessionWorktree: (target) => sessionWorktrees.discardSessionWorktree(store, target),
     syncCurrentWorkspace: () => syncCurrentWorkspace(store),
     createWorktree: (input) => worktree.createWorktree(store, input),
     removeWorktree: (input) => worktree.removeWorktree(store, input),
@@ -396,9 +405,10 @@ async function createSession(
 
   return store.withErrorHandling(async () => {
     const createOptions = await store.buildCreateSessionOptions(input.workspaceId);
-    const snapshot = await store.driver.createSession(ws, {
+    const snapshot = await sessionWorktrees.createSessionWithWorktree(store, ws, {
       ...createOptions,
       title: input.title?.trim() || NEW_THREAD_PLACEHOLDER_TITLE,
+      useWorktree: input.useWorktree === true,
     });
     store.seedSession(snapshot);
     store.setActiveSession(snapshot.ref);

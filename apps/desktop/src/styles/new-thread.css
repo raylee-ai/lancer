@@ -65,6 +65,18 @@
   color: var(--text-strong);
 }
 
+.new-thread__isolate {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted-strong);
+  font-size: 13px;
+}
+
+.new-thread__isolate--disabled {
+  opacity: 0.55;
+}
+
 .new-thread__textarea {
   min-height: 100px;
   resize: vertical;
