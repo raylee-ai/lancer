@@ -1,0 +1,4 @@
+# Optional. The offline unit tests use only the Python standard library.
+# Install these before a real SWE-bench fetch or Docker grade.
+datasets>=2.18.0
+swebench>=3.0.0

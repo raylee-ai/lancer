@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "name": "example-business-tasks",
+  "description": "Template for a private task set. Point repo_url at a git URL or a local path and set base_commit before running. This file is not a SWE-bench score.",
+  "tasks": [
+    {
+      "instance_id": "billing__tax-rounding-1",
+      "repo": "example/billing",
+      "repo_url": "https://example.com/billing.git",
+      "base_commit": "REPLACE_WITH_FULL_COMMIT",
+      "problem_statement": "Invoice tax rounding should use half-up away from zero. A tax amount of 0.005 becomes 0.01.",
+      "gold_files": ["billing/tax.py"],
+      "test_command": "python3 -m unittest tests/test_tax.py",
+      "notes": "With --run-local-tests the harness applies the agent patch and runs test_command on this machine. That is not SWE-bench Docker grading."
+    }
+  ]
+}
