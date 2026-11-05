@@ -34,6 +34,7 @@ type ControlStore = Pick<
       | "subscribeToSessionEvents"
       | "subscribe"
       | "cancelCurrentRun"
+      | "setSessionModel"
       | "setSessionThinkingLevel"
       | "getControlMetadata"
       | "updateControlMetadata"
@@ -60,6 +61,7 @@ function text(value: unknown, field: string): string {
 
 export class ControlService {
   // Keep only the latest receipt per session, not a second transcript/history store.
+  private readonly instanceId = randomUUID();
   private readonly latest = new Map<string, Submission>();
   private readonly pending = new Map<string, number>();
   readonly journal = new RuntimeJournal();
@@ -67,6 +69,7 @@ export class ControlService {
     string,
     Awaited<ReturnType<DesktopAppStore["getControlMetadata"]>>
   >();
+  private readonly configuring = new Set<string>();
   private readonly stopping = new Map<string, Promise<unknown>>();
 
   constructor(
@@ -144,6 +147,13 @@ export class ControlService {
           ...ref,
           id: session.id,
           updatedAt: session.updatedAt,
+          controlGuard: {
+            instanceId: this.instanceId,
+            updatedAt: session.updatedAt,
+            cursor: this.journal.logs(ref).at(-1)?.seq ?? 0,
+            model: explicitModel ?? defaultModel,
+            thinkingLevel: session.config?.thinkingLevel ?? null,
+          },
           title: stripLancerZonePrefix(session.title),
           rawTitle: session.title,
           zoneId: conversationZoneId(session.title),
@@ -200,10 +210,22 @@ export class ControlService {
     return result;
   }
 
-  private send(ref: SessionRef, message: string, mode: unknown) {
+  private assertGuard(ref: SessionRef, expected: unknown): void {
+    if (expected === undefined) return;
+    const wanted = record(expected);
+    const actual = this.session(ref).controlGuard;
+    for (const field of ["instanceId", "updatedAt", "cursor", "model", "thinkingLevel"] as const)
+      if (wanted[field] !== actual[field])
+        throw new ControlError("SESSION_CHANGED", `Session changed before dispatch: ${field}`);
+  }
+
+  private send(ref: SessionRef, message: string, mode: unknown, expected?: unknown) {
+    this.assertGuard(ref, expected);
     if (mode !== "send" && mode !== "queue" && mode !== "steer")
       throw new ControlError("INVALID_REQUEST", "mode must be send, queue or steer");
     const current = this.session(ref);
+    if (this.configuring.has(sessionKey(ref)))
+      throw new ControlError("SESSION_BUSY", "Session configuration is changing");
     if (
       mode === "send" &&
       (current.status === "running" ||
@@ -218,13 +240,34 @@ export class ControlService {
         "SESSION_STARTING",
         "Session is starting or settling; inspect status before sending again",
       );
+    const before = current.controlGuard;
     const key = sessionKey(ref);
     const submission: Submission = { id: randomUUID(), mode, state: "pending" };
     this.latest.set(key, submission);
     this.pending.set(key, (this.pending.get(key) ?? 0) + 1);
     if (mode === "send" && this.store.subscribeToSessionEvents) this.journal.status(ref, "queued");
     void this.store
-      .submitControlMessage(ref, message, mode === "steer" ? "steer" : "followUp")
+      .submitControlMessage(
+        ref,
+        message,
+        mode === "steer" ? "steer" : "followUp",
+        expected === undefined
+          ? undefined
+          : () => {
+              // Rechecked by the store after session hydration, before the first write.
+              // The control-owned queued status is the only allowed intervening event.
+              const actual = this.session(ref);
+              if (actual.archived || actual.status === "running" || actual.status === "waiting")
+                throw new ControlError("SESSION_CHANGED", "Session started before guarded send");
+              this.assertGuard(ref, {
+                ...record(expected),
+                cursor: this.journal.logs(ref).at(-1)?.seq ?? 0,
+              });
+              const intervening = this.journal.logs(ref, before.cursor);
+              if (intervening.some((event) => event.kind !== "status" || event.status !== "queued"))
+                throw new ControlError("SESSION_CHANGED", "Runtime changed before guarded send");
+            },
+      )
       .then(async () => {
         const state = await this.store.getStateForView({
           selectedWorkspaceId: ref.workspaceId,
@@ -249,7 +292,13 @@ export class ControlService {
         if (!count && this.journal.state(ref)?.status === "queued")
           this.journal.status(ref, submission.state === "failed" ? "failed" : "idle");
       });
-    return { accepted: true, session: ref, submissionId: submission.id, mode };
+    return {
+      accepted: true,
+      session: ref,
+      submissionId: submission.id,
+      mode,
+      controlGuard: before,
+    };
   }
 
   async handle(raw: unknown): Promise<unknown> {
@@ -371,21 +420,60 @@ export class ControlService {
       }
       return { stopped: true, session: ref };
     }
-    if (operation === "set-thinking") {
-      let thinkingLevel: ReturnType<typeof expectThinkingLevel>;
-      try {
-        thinkingLevel = expectThinkingLevel(input.thinkingLevel);
-      } catch (error) {
+    if (operation === "set-thinking" || operation === "set-model") {
+      const key = sessionKey(ref);
+      this.assertGuard(ref, input.expected);
+      const current = this.session(ref);
+      if (
+        current.pending ||
+        ["running", "waiting", "queued"].includes(current.status) ||
+        this.configuring.has(key) ||
+        this.stopping.has(key)
+      )
         throw new ControlError(
-          "INVALID_REQUEST",
-          error instanceof Error ? error.message : String(error),
+          "SESSION_BUSY",
+          "Session must be idle before changing model or thinking",
         );
+      this.configuring.add(key);
+      try {
+        if (operation === "set-model") {
+          const model = text(input.model, "model");
+          if (!/^[^/\s]+\/[^\s]+$/.test(model))
+            throw new ControlError("INVALID_REQUEST", "model must be exact provider/id");
+          if (!this.store.setSessionModel)
+            throw new ControlError("UNAVAILABLE", "Session model control unavailable");
+          const slash = model.indexOf("/");
+          const state = await this.store.setSessionModel(
+            ref,
+            model.slice(0, slash),
+            model.slice(slash + 1),
+          );
+          if (state.lastError) throw new Error(state.lastError);
+          const actual = this.session(ref, state);
+          return { session: ref, model: actual.model, controlGuard: actual.controlGuard };
+        }
+        let thinkingLevel: ReturnType<typeof expectThinkingLevel>;
+        try {
+          thinkingLevel = expectThinkingLevel(input.thinkingLevel);
+        } catch (error) {
+          throw new ControlError(
+            "INVALID_REQUEST",
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+        if (!this.store.setSessionThinkingLevel)
+          throw new ControlError("UNAVAILABLE", "Session thinking control unavailable");
+        const state = await this.store.setSessionThinkingLevel(ref, thinkingLevel);
+        if (state.lastError) throw new Error(state.lastError);
+        const actual = this.session(ref, state);
+        return {
+          session: ref,
+          thinkingLevel: actual.thinkingLevel,
+          controlGuard: actual.controlGuard,
+        };
+      } finally {
+        this.configuring.delete(key);
       }
-      if (!this.store.setSessionThinkingLevel)
-        throw new ControlError("UNAVAILABLE", "Session thinking control unavailable");
-      const state = await this.store.setSessionThinkingLevel(ref, thinkingLevel);
-      if (state.lastError) throw new Error(state.lastError);
-      return { session: ref, thinkingLevel: this.session(ref, state).thinkingLevel };
     }
     if (operation === "set-result") {
       const workspace = this.session(ref).cwd;
@@ -426,7 +514,7 @@ export class ControlService {
       return { session: ref, stage, progress };
     }
     if (operation === "send")
-      return this.send(ref, this.message(input.message), input.mode ?? "send");
+      return this.send(ref, this.message(input.message), input.mode ?? "send", input.expected);
     if (operation !== "tail" && operation !== "wait")
       throw new ControlError("INVALID_REQUEST", `Unknown operation: ${operation}`);
     const view = { selectedWorkspaceId: ref.workspaceId, selectedSessionId: ref.sessionId };
@@ -446,7 +534,16 @@ export class ControlService {
     const result = {
       session,
       done,
-      outcome: done ? (error || session.status === "failed" ? "failed" : "idle") : session.status,
+      outcome: done
+        ? error || session.status === "failed"
+          ? "failed"
+          : session.status === "done" &&
+              this.journal
+                .logs(ref)
+                .some((event) => event.kind === "runCompleted" && event.outcome === "completed")
+            ? "completed"
+            : "idle"
+        : session.status,
       error,
     };
     if (operation === "wait") return result;

@@ -461,3 +461,12 @@ test("unscoped stream merges sessions in cursor order without replay duplication
     stream.close();
   }
 });
+
+test("persisted done after restart is not fresh normal completion evidence", async () => {
+  const f = fixture();
+  f.metadata.set("a", { runtimeStatus: "done", startedAt: timestamp, finishedAt: timestamp });
+  expect(await f.service.handle({ operation: "wait", session: "a" })).toMatchObject({
+    done: true,
+    outcome: "idle",
+  });
+});

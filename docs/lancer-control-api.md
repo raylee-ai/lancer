@@ -13,9 +13,9 @@ macOS 默认路径：
 - `~/Library/Application Support/Lancer/control.sock`：Unix domain socket，权限 `0600`。
 - 同目录 `control.token`：32 字节随机值的十六进制表示，权限 `0600`；重启复用。
 
-Linux 使用 `$XDG_CONFIG_HOME/Lancer`（未设置时 `~/.config/Lancer`）。当前不支持 Windows 传输层。开发/测试自定义 `PI_APP_USER_DATA_DIR` 后，CLI 用 `--user-data-dir` 或 `LANCER_USER_DATA_DIR` 指向同一目录。
+Linux 使用 `$XDG_CONFIG_HOME/Lancer`（未设置时 `~/.config/Lancer`）。Windows 默认 profile 为 `%APPDATA%/Lancer`，使用 HTTP over named pipe；端点由当前用户身份与规范化 profile 路径的 SHA-256 推导，不绑定 TCP。服务端和 CLI 共用 `scripts/lib/control-paths.mjs`。Windows token 为 profile 下 `control-local/control.token`，目录和文件使用当前用户拥有、关闭继承的 DACL，允许的其他主体仅为 SYSTEM/Administrators；新建时设置 ACL，重用时只核验，拒绝异常 ACL、reparse point、硬链接、非普通文件或异常 token，不用 POSIX mode 位判断 Windows 权限。开发/测试自定义 `PI_APP_USER_DATA_DIR` 后，CLI 用 `--user-data-dir` 或 `LANCER_USER_DATA_DIR` 指向同一目录。
 
-只监听 Unix socket，不开 TCP 端口、不对外网开放、无遥测。每个请求必须携带 token。token 等同于以用户权限向 Lancer 派活的能力：不要复制给不受信任的程序，也不要放入日志、版本控制或共享 artifacts。同一操作系统用户下能读取 token 的程序不被视为互相隔离的安全主体。
+只监听 Unix socket / Windows named pipe，不开 TCP 端口、不对外网开放、无遥测。每个请求必须携带 token。token 等同于以用户权限向 Lancer 派活的能力：不要复制给不受信任的程序，也不要放入日志、版本控制或共享 artifacts。同一操作系统用户下能读取 token 的程序不被视为互相隔离的安全主体。
 
 消息沿用界面发送的工具、扩展和审批策略（Pi `source: interactive`）。接口没有“跳过审批”或远程确认入口；需要确认时只能由用户在界面处理。关闭接口会断开控制连接，**不会取消此前已接受的运行**，不会撤销已有队列，也不会删除 token 或会话。启动失败仅记录主进程诊断，不阻断桌面打开；可关闭再开启重试。
 
@@ -28,6 +28,7 @@ Linux 使用 `$XDG_CONFIG_HOME/Lancer`（未设置时 `~/.config/Lancer`）。�
 ```sh
 ./scripts/lancer-ctl sessions
 ./scripts/lancer-ctl sessions --json
+./scripts/lancer-ctl set-model '<session-id 或标题片段>' provider/model-id
 ./scripts/lancer-ctl set-thinking '<session-id 或标题片段>' high
 ./scripts/lancer-ctl send '会话标题片段' '检查当前修改，完成后总结风险'
 ./scripts/lancer-ctl send '<session-id>' --mode queue '当前任务结束后补充测试'
@@ -59,11 +60,17 @@ Linux 使用 `$XDG_CONFIG_HOME/Lancer`（未设置时 `~/.config/Lancer`）。�
 
 为避免冒充某个窗口或修改用户 composer，接口只发送**普通文本**，拒绝以 `/` 开头的 slash command。附件上传、审批响应、窗口导航不在 v1 范围；这些仍由界面提供。普通文本的模型执行、排队、引导、工具权限和界面走同一通道。
 
-### 会话思考强度
+Windows 直接运行 `node scripts/lancer-ctl.mjs sessions --json --user-data-dir C:/path/to/profile`，其余命令参数相同。CLI 除主文件外还需保留 `scripts/lib/` 共享 helper。
+
+### 已有会话模型与思考强度
+
+`set-model <id|title> <provider/model-id>` 复用 UI 的 `store.setSessionModel`，仅在会话静止（idle/done/failed，且无启动中提交、队列或待处理审批）时允许，返回实际会话配置 `{ session, model, controlGuard }`。Pi 自定义 provider 的标识需包含 provider：例如准入 alias `vendor/model` 经本地 Magpie provider 运行时，runtime 标识为 `magpie/vendor/model`；控制接口不解释路由策略或自动加此前缀。
+
+UI 和控制接口共用 conversation owner 的配置/发送互斥边界，配置锁在异步初始化前取得，并覆盖实际 driver 变更；启动中发送和运行中的会话均拒绝配置。控制接口另覆盖 pending、queued、waiting 等状态。该边界不会给外部 runner 授予独占 UI 的长期 lease。
 
 `set-thinking <id|title> off|minimal|low|medium|high|xhigh|max` 调用与 UI 相同的 `setSessionThinkingLevel`，作用于已有会话并同步 UI chip；不修改全局 `defaultThinkingLevel` 或 settings.json，也不切换当前会话。持久化、可用强度及模型不支持时的降档行为沿用现有 UI / Pi runtime：已有对话重启后保留，尚无消息的空会话在重启初始化时可能恢复默认强度。
 
-成功返回 `{ session: { workspaceId, sessionId }, thinkingLevel }`；参数非法、目标不存在/歧义或 runtime 设置失败会报错，不返回成功回执。运行旧版应用时需先更新并重启。
+成功返回 `{ session: { workspaceId, sessionId }, thinkingLevel, controlGuard }`（运行时降档后保留有效档位，不用请求值覆盖 driver 事件配置）；参数非法、目标不存在/歧义或 runtime 设置失败会报错，不返回成功回执。运行旧版应用时需先更新并重启。运行中、排队、等待人工或启动/收尾中修改均返回 `SESSION_BUSY`。
 
 ### 输出与等待
 
@@ -73,7 +80,8 @@ Linux 使用 `$XDG_CONFIG_HOME/Lancer`（未设置时 `~/.config/Lancer`）。�
 - `tail --json`：`session`、`messages`（最近 N 个消息/工具/阶段条目）、独立的 `lastAssistant`（最新助手文本全文，不受 N 截断）、`done`、`outcome`、可选 `error`。N 默认 20，允许 1–1000。使用主进程 transcript 缓存/既有加载路径，不直接解析 session 文件。
 - `wait`：每 250ms 轮询主进程，等待非 running、非 waiting 且 `pending === 0`；包含当前运行内的引导/排队处理，不把 `agent_end` 的中间重试当结束。已经空闲的会话立即返回。默认超时 300 秒，超时不取消任务。
 - `submission` 只保存每会话最近一次本地派发的内存回执；`pending/complete/failed` 是派发调用状态。queue/steer 的 complete 表示已入 Pi 通道，不是模型已经处理完；以 `wait` 的 `done` 为准。应用重启不保存回执。
-- `outcome: idle` 表示当前已停止运行，不承诺任务业务成功；界面 Stop 也会回到 idle。v1 没有独立持久化的取消/成功原因或 run-id 等待锁。
+- `outcome: completed` 只在当前进程 journal 观察到正常 `runCompleted` 且会话已静止时返回；`idle` 表示没有正常完成证据，不能作为业务成功。取消/失败返回 failed 或无正常完成证据。`runCompleted` 日志携带 `runId` 和 `outcome: completed|aborted`；旧 driver 正常 `runCompleted` 省略 outcome 时，日志按事件契约标为 completed。
+- `session.controlGuard` 为 `{instanceId, updatedAt, cursor, model, thinkingLevel}`。`set-model`、`set-thinking` 和 `send` 可传 `expected` 为上一步原样返回的 guard；字段不符报 `SESSION_CHANGED`，用于检测 UI/其他客户端插入与应用重启。`send` 接受后还在 session hydration 后及真正发送前再核验。它不是长期会话锁：自动接力仍须比较提交 ID、发送前 cursor 后的唯一正常 run、实际配置及新增用户消息；并发 UI 的输入不得冒充该次提交的完成。
 
 退出码：成功 `0`；参数、连接、认证、派发拒绝、`wait` 确认失败 `1`；`wait` 超时 `2`（JSON 包含 `timedOut: true`）。Lancer 未运行/开关关闭会清楚报错，永不回退到直接写文件。
 
@@ -107,7 +115,7 @@ HTTP/1.1 **只在 Unix socket 上**：`POST /v1`，`Authorization: Bearer <contr
 }
 ```
 
-状态码：成功 200；认证失败 401；错误 URL/method 404；超过请求大小 413；非法 JSON/参数、找不到/歧义会话、busy、disabled 等 400；主机操作失败 500。错误码包括 `UNAUTHORIZED`、`INVALID_JSON`、`INVALID_REQUEST`、`TOO_LARGE`、`NOT_FOUND`、`AMBIGUOUS_SESSION`、`SESSION_BUSY`、`SESSION_STARTING`、`DISABLED`、`INTERNAL_ERROR`。
+状态码：成功 200；认证失败 401；错误 URL/method 404；超过请求大小 413；非法 JSON/参数、找不到/歧义会话、busy、disabled 等 400；主机操作失败 500。错误码包括 `SESSION_CHANGED`、`UNAUTHORIZED`、`INVALID_JSON`、`INVALID_REQUEST`、`TOO_LARGE`、`NOT_FOUND`、`AMBIGUOUS_SESSION`、`SESSION_BUSY`、`SESSION_STARTING`、`DISABLED`、`INTERNAL_ERROR`。
 
 手动查询（不要把 token 展开值写到日志）：
 
@@ -144,6 +152,7 @@ curl --unix-socket "$PROFILE/control.sock" \
 { "operation": "logs", "session": "sessionId", "since": 42 }
 { "operation": "stream", "session": "sessionId", "since": 42 }
 { "operation": "stop", "session": "sessionId" }
+{ "operation": "set-model", "session": "sessionId", "model": "provider/model-id" }
 { "operation": "set-result", "session": "sessionId", "path": ".lancer-task/out/result.json" }
 { "operation": "set-stage", "session": "sessionId", "stage": "testing", "progress": 0.5 }
 { "operation": "set-stage", "session": "sessionId", "stage": null, "progress": null }
@@ -166,7 +175,7 @@ curl --unix-socket "$PROFILE/control.sock" \
 node --test scripts/lancer-ctl.test.mjs
 pnpm typecheck
 pnpm test:baseline
-pnpm exec playwright test -c apps/desktop/playwright.config.ts apps/desktop/tests/unit/control-api.spec.ts
+pnpm exec playwright test -c apps/desktop/playwright.config.ts apps/desktop/tests/unit/control-api.spec.ts apps/desktop/tests/unit/control-runtime-api.spec.ts apps/desktop/tests/unit/control-relay.spec.ts apps/desktop/tests/unit/session-mutation.spec.ts
 PI_APP_REAL_AUTH=0 PI_APP_TEST_MODE=background \
   pnpm --filter @lancer/desktop run test:e2e:runner -- apps/desktop/tests/core/local-control.spec.ts
 ```
@@ -178,3 +187,5 @@ PI_APP_REAL_AUTH=0 PI_APP_TEST_MODE=background \
 `./scripts/lancer-ctl new --draft --cwd /path/to/project --zone video --name '待办 · 下载视频'`
 
 `--draft` 只复用原会话创建与分区路径，不发送消息、不调用模型；不能同时传正文或 `--file`。回执 `created: true, started: false` 表示空会话已建立，不表示任务完成。省略 `--model` 沿用当前默认模型，任务名称不代表已配置该任务所需的其他模型。Wire API 为 `operation: "new", draft: true`，不含 `message`。
+
+Windows Node-only coverage exercises a real named pipe, authentication rejection, token ACL validation, CLI round-trip, token reuse and disable/re-enable. It launches no Electron UI and makes no provider requests. Real-provider conversation/UI acceptance remains a separate required proof.

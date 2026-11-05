@@ -180,7 +180,7 @@ test("set-thinking targets existing sessions, validates levels and surfaces owne
   for (const thinkingLevel of ["off", "minimal", "low", "medium", "high", "xhigh", "max"])
     expect(
       await f.service.handle({ operation: "set-thinking", session: "Alpha task", thinkingLevel }),
-    ).toEqual({ session: { workspaceId: "ws", sessionId: "a" }, thinkingLevel });
+    ).toMatchObject({ session: { workspaceId: "ws", sessionId: "a" }, thinkingLevel });
   expect(f.deliveries).toHaveLength(7);
   expect(f.deliveries[4]).toEqual({
     ref: { workspaceId: "ws", sessionId: "a" },

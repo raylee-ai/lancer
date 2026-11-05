@@ -23,6 +23,7 @@ export interface RuntimeJournalEvent extends Omit<
   readonly status?: RuntimeStatus;
   readonly text: string;
   readonly runId?: string;
+  readonly outcome?: "completed" | "aborted";
   readonly callId?: string;
   readonly toolName?: string;
   readonly input?: unknown;
@@ -319,6 +320,7 @@ export class RuntimeJournal {
           extra = { ...extra, exitCode: exitCode(event.output) };
         break;
       case "runCompleted":
+        extra = { outcome: event.outcome ?? "completed" };
         finish(event.outcome === "aborted" ? "failed" : "done");
         text = event.outcome === "aborted" ? "Run interrupted" : "Run completed";
         break;

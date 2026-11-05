@@ -5,15 +5,18 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
+import { controlPaths } from "./lib/control-paths.mjs";
+import { ensureControlToken } from "./lib/control-token.mjs";
 
 async function fixture(t, handler) {
   const directory = await mkdtemp(join(tmpdir(), "lctl-"));
-  await writeFile(join(directory, "control.token"), "test-token\n");
+  const { socketPath, tokenPath } = controlPaths(directory);
+  const token = await ensureControlToken(tokenPath);
   const requests = [];
   const server = createServer(async (req, res) => {
     assert.equal(req.url, "/v1");
     assert.equal(req.method, "POST");
-    assert.equal(req.headers.authorization, "Bearer test-token");
+    assert.equal(req.headers.authorization, `Bearer ${token}`);
     let body = "";
     for await (const chunk of req) body += chunk;
     const input = JSON.parse(body);
@@ -21,7 +24,7 @@ async function fixture(t, handler) {
     if (handler) handler(input, res);
     else res.end(JSON.stringify({ ok: true, result: input }));
   });
-  await new Promise((resolve) => server.listen(join(directory, "control.sock"), resolve));
+  await new Promise((resolve) => server.listen(socketPath, resolve));
   t.after(() => {
     server.closeAllConnections();
     server.close();
@@ -56,6 +59,10 @@ test("new operations and old commands preserve wire payloads", async (t) => {
     [["lanes", "--group", "g", "--json"], { operation: "lanes", group: "g" }],
     [["logs", "s", "--since", "12", "--json"], { operation: "logs", session: "s", since: 12 }],
     [["stop", "s"], { operation: "stop", session: "s" }],
+    [
+      ["set-model", "s", "exact/provider-model"],
+      { operation: "set-model", session: "s", model: "exact/provider-model" },
+    ],
     ...["off", "minimal", "low", "medium", "high", "xhigh", "max"].map((thinkingLevel) => [
       ["set-thinking", "Task title", thinkingLevel],
       { operation: "set-thinking", session: "Task title", thinkingLevel },

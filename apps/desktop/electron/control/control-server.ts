@@ -1,47 +1,14 @@
-import { constants } from "node:fs";
-import { chmod, lstat, open, unlink } from "node:fs/promises";
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { chmod, lstat, unlink } from "node:fs/promises";
+import { timingSafeEqual } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import { createConnection, type Socket } from "node:net";
-import { join } from "node:path";
+import { controlPaths } from "../../../../scripts/lib/control-paths.mjs";
+import { ensureControlToken } from "../../../../scripts/lib/control-token.mjs";
 import { ControlError } from "./control-service";
 import { ControlStream } from "./control-stream";
 import { once } from "node:events";
 
 const MAX_BODY = 1024 * 1024;
-
-async function tokenAt(path: string): Promise<string> {
-  try {
-    const file = await open(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, 0o600);
-    const token = randomBytes(32).toString("hex");
-    try {
-      await file.writeFile(`${token}\n`);
-      await file.sync();
-    } finally {
-      await file.close();
-    }
-    return token;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-  }
-  const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
-  try {
-    const stat = await file.stat();
-    if (
-      !stat.isFile() ||
-      stat.size > 128 ||
-      (stat.mode & 0o777) !== 0o600 ||
-      (process.getuid && stat.uid !== process.getuid())
-    )
-      throw new Error("control.token must be a regular file owned by this user with mode 0600");
-    const token = (await file.readFile("utf8")).trim();
-    if (!/^[a-f0-9]{64}$/.test(token))
-      throw new Error("Invalid control.token; original file retained");
-    return token;
-  } finally {
-    await file.close();
-  }
-}
 
 async function clearStaleSocket(path: string): Promise<void> {
   let stat;
@@ -77,7 +44,7 @@ async function clearStaleSocket(path: string): Promise<void> {
   await unlink(path);
 }
 
-/** HTTP/1.1 over a Unix socket only. No TCP listener, discovery service or telemetry. */
+/** HTTP/1.1 over local IPC only (Unix socket or Windows named pipe). No TCP listener, discovery service or telemetry. */
 export class ControlServer {
   private server?: Server;
   private readonly sockets = new Set<Socket>();
@@ -89,8 +56,9 @@ export class ControlServer {
     directory: string,
     private readonly handle: (input: unknown) => Promise<unknown>,
   ) {
-    this.socketPath = join(directory, "control.sock");
-    this.tokenPath = join(directory, "control.token");
+    const paths = controlPaths(directory);
+    this.socketPath = paths.socketPath;
+    this.tokenPath = paths.tokenPath;
   }
 
   setEnabled(enabled: boolean): Promise<void> {
@@ -101,10 +69,8 @@ export class ControlServer {
 
   private async start(): Promise<void> {
     if (this.server) return;
-    if (process.platform === "win32")
-      throw new Error("Local control currently requires Unix domain sockets (macOS/Linux)");
-    const token = await tokenAt(this.tokenPath);
-    await clearStaleSocket(this.socketPath);
+    const token = await ensureControlToken(this.tokenPath);
+    if (process.platform !== "win32") await clearStaleSocket(this.socketPath);
     const server = createServer((request, response) => {
       response.on("error", () => {});
       const respond = (status: number, body: unknown) => {
@@ -206,7 +172,7 @@ export class ControlServer {
     });
     this.server = server;
     try {
-      await chmod(this.socketPath, 0o600);
+      if (process.platform !== "win32") await chmod(this.socketPath, 0o600);
     } catch (error) {
       await this.stop();
       throw error;

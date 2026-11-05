@@ -136,6 +136,68 @@ interface ConversationOwnerHost {
 
 type ComposerStore = ConversationOwnerHost;
 
+// Shared by UI, control and background delivery. Only active operations are
+// retained; this is not a session lease or a second persistent state owner.
+const activeMutations = new WeakMap<
+  ComposerStore,
+  Map<string, { configuring: boolean; sends: number }>
+>();
+function mutations(store: ComposerStore) {
+  let active = activeMutations.get(store);
+  if (!active) {
+    active = new Map();
+    activeMutations.set(store, active);
+  }
+  return active;
+}
+function assertNotConfiguring(store: ComposerStore, ref: SessionRef): void {
+  if (mutations(store).get(sessionKey(ref))?.configuring)
+    throw new Error("Session configuration is changing; wait before sending");
+}
+function beginSending(store: ComposerStore, ref: SessionRef): () => void {
+  assertNotConfiguring(store, ref);
+  const active = mutations(store);
+  const key = sessionKey(ref);
+  const entry = active.get(key) ?? { configuring: false, sends: 0 };
+  entry.sends++;
+  active.set(key, entry);
+  return () => {
+    entry.sends--;
+    if (!entry.sends) active.delete(key);
+  };
+}
+async function configureIdleSession(
+  store: ComposerStore,
+  ref: SessionRef,
+  change: () => Promise<DesktopAppState>,
+): Promise<DesktopAppState> {
+  return store.withErrorHandling(async () => {
+    const active = mutations(store);
+    const key = sessionKey(ref);
+    const idle = () => {
+      if (
+        active.has(key) ||
+        store.sessionFromState(ref)?.status === "running" ||
+        store.getQueuedComposerMessages(ref).length
+      )
+        throw new Error("Session must be idle before changing model or thinking");
+    };
+    idle();
+    active.set(key, { configuring: true, sends: 0 });
+    try {
+      await store.initialize();
+      if (
+        store.sessionFromState(ref)?.status === "running" ||
+        store.getQueuedComposerMessages(ref).length
+      )
+        throw new Error("Session became busy before configuration");
+      return await change();
+    } finally {
+      active.delete(key);
+    }
+  });
+}
+
 export interface ConversationOwner {
   updateComposerDraft(
     sessionRef: SessionRef | undefined,
@@ -176,6 +238,7 @@ export interface ConversationOwner {
     options?: {
       readonly deliverAs?: "steer" | "followUp";
       readonly allowCommands?: boolean;
+      readonly beforeSend?: () => void;
       readonly preserveComposer?: boolean;
     },
   ): Promise<DesktopAppState>;
@@ -458,6 +521,7 @@ async function submitComposer(
   options: {
     readonly deliverAs?: "steer" | "followUp";
     readonly allowCommands?: boolean;
+    readonly beforeSend?: () => void;
     readonly preserveComposer?: boolean;
   } = {},
 ): Promise<DesktopAppState> {
@@ -485,6 +549,7 @@ async function submitComposerToSession(
   options: {
     readonly deliverAs?: "steer" | "followUp";
     readonly allowCommands?: boolean;
+    readonly beforeSend?: () => void;
     readonly preserveComposer?: boolean;
   } = {},
 ): Promise<DesktopAppState> {
@@ -514,6 +579,8 @@ async function submitComposerToSession(
     : store.getQueuedComposerEditState(sessionRef);
   let optimisticSteerMessage: SessionQueuedMessage | undefined;
   try {
+    assertNotConfiguring(store, sessionRef);
+    options.beforeSend?.();
     store.assertRunAllowed?.(sessionRef);
     if (resolvedRuntimeSlashCommand) {
       const learnedCompatibility = store.getLearnedRuntimeCommandCompatibility(
@@ -585,6 +652,7 @@ async function submitComposerToSession(
 
     await sendMessageToSession(store, sessionRef, text, attachments, {
       preserveComposer: options.preserveComposer,
+      beforeSend: options.beforeSend,
     });
     const runtimeCommandOutcome = resolvedRuntimeSlashCommand
       ? store.finishRuntimeCommandExecution(sessionRef)
@@ -626,11 +694,10 @@ async function setSessionModel(
   provider: string,
   modelId: string,
 ): Promise<DesktopAppState> {
-  await store.initialize();
   const sessionRef = toSessionRef(target);
   const key = sessionKey(sessionRef);
 
-  return store.withErrorHandling(async () => {
+  return configureIdleSession(store, sessionRef, async () => {
     await store.driver.setSessionModel(sessionRef, { provider, modelId });
     syncSessionConfig(store, key, { provider, modelId });
     return finishComposerCommand(store, sessionRef, key, `Model set to ${provider}:${modelId}`);
@@ -642,12 +709,18 @@ async function setSessionThinkingLevel(
   sessionRef: SessionRef,
   thinkingLevel: string,
 ): Promise<DesktopAppState> {
-  await store.initialize();
   const key = sessionKey(sessionRef);
-  return store.withErrorHandling(async () => {
+  return configureIdleSession(store, sessionRef, async () => {
     await store.driver.setSessionThinkingLevel(sessionRef, thinkingLevel);
-    syncSessionConfig(store, key, { thinkingLevel });
-    return finishComposerCommand(store, sessionRef, key, `Thinking set to ${thinkingLevel}`);
+    // The awaited driver event owns the effective (possibly clamped) level.
+    // Do not overwrite its snapshot with the requested level.
+    const effectiveLevel = store.conversationState.sessionConfigBySession.get(key)?.thinkingLevel;
+    return finishComposerCommand(
+      store,
+      sessionRef,
+      key,
+      `Thinking set to ${effectiveLevel ?? "unknown"}`,
+    );
   });
 }
 
@@ -689,49 +762,57 @@ async function deliverBackgroundInstruction(
   if (!instruction) {
     throw new Error("Scheduled task instruction is empty.");
   }
-  await store.ensureSessionReady(sessionRef);
-  const session = store.sessionFromState(sessionRef);
-  if (!session) {
-    throw new Error(`Unknown session: ${sessionRef.workspaceId}:${sessionRef.sessionId}`);
-  }
-  if (session.archivedAt) {
-    throw new Error("Scheduled task target thread is archived.");
-  }
+  const release = beginSending(store, sessionRef);
+  try {
+    await store.ensureSessionReady(sessionRef);
+    const session = store.sessionFromState(sessionRef);
+    if (!session) {
+      throw new Error(`Unknown session: ${sessionRef.workspaceId}:${sessionRef.sessionId}`);
+    }
+    if (session.archivedAt) {
+      throw new Error("Scheduled task target thread is archived.");
+    }
 
-  store.recordUserMessageRecency(sessionRef);
+    store.recordUserMessageRecency(sessionRef);
 
-  if (session.status === "running") {
-    const nextMessage = buildQueuedComposerMessage({
+    if (session.status === "running") {
+      const nextMessage = buildQueuedComposerMessage({
+        text: instruction,
+        attachments: [],
+        mode: "followUp",
+      });
+      const nextQueuedMessages = [...store.getQueuedComposerMessages(sessionRef), nextMessage];
+      await store.driver.replaceQueuedMessages(
+        sessionRef,
+        toSessionQueuedMessages(nextQueuedMessages),
+      );
+      await store.refreshState({
+        clearLastError: true,
+        markSelectedSessionViewed: false,
+      });
+      return undefined;
+    }
+
+    const key = sessionKey(sessionRef);
+    const optimisticMessageId = appendUserMessage(
+      store.conversationState.transcriptCache,
+      sessionRef,
+      instruction,
+    );
+    store.publishSelectedTranscriptFor(sessionRef);
+    clearActiveAssistantMessage(
+      store.conversationState.activeAssistantMessageBySession,
+      sessionRef,
+    );
+    store.conversationState.sessionErrorsBySession.delete(key);
+    await store.driver.sendUserMessage(sessionRef, {
       text: instruction,
       attachments: [],
-      mode: "followUp",
     });
-    const nextQueuedMessages = [...store.getQueuedComposerMessages(sessionRef), nextMessage];
-    await store.driver.replaceQueuedMessages(
-      sessionRef,
-      toSessionQueuedMessages(nextQueuedMessages),
-    );
-    await store.refreshState({
-      clearLastError: true,
-      markSelectedSessionViewed: false,
-    });
-    return undefined;
+    return optimisticMessageId;
+  } finally {
+    release();
   }
-
-  const key = sessionKey(sessionRef);
-  const optimisticMessageId = appendUserMessage(
-    store.conversationState.transcriptCache,
-    sessionRef,
-    instruction,
-  );
-  store.publishSelectedTranscriptFor(sessionRef);
-  clearActiveAssistantMessage(store.conversationState.activeAssistantMessageBySession, sessionRef);
-  store.conversationState.sessionErrorsBySession.delete(key);
-  await store.driver.sendUserMessage(sessionRef, {
-    text: instruction,
-    attachments: [],
-  });
-  return optimisticMessageId;
 }
 
 async function sendMessageToSession(
@@ -741,48 +822,58 @@ async function sendMessageToSession(
   attachments: readonly ComposerAttachment[],
   options: {
     readonly rollbackOptimisticMessageOnError?: boolean;
+    readonly beforeSend?: () => void;
     readonly preserveComposer?: boolean;
   } = {},
 ): Promise<void> {
-  const key = sessionKey(sessionRef);
-  const rollbackOptimisticMessageOnError = options.rollbackOptimisticMessageOnError ?? true;
-  if (!store.conversationState.loadedTranscriptKeys.has(key)) {
-    await store.ensureSessionReady(sessionRef);
-  }
-  store.assertRunAllowed?.(sessionRef);
-  if (store.sessionFromState(sessionRef)?.archivedAt) {
-    await store.driver.unarchiveSession(sessionRef);
-  }
-  store.recordUserMessageRecency(sessionRef);
-  const optimisticMessageId = appendUserMessage(
-    store.conversationState.transcriptCache,
-    sessionRef,
-    text,
-    toTranscriptAttachments(attachments),
-  );
-  store.publishSelectedTranscriptFor(sessionRef);
-  clearActiveAssistantMessage(store.conversationState.activeAssistantMessageBySession, sessionRef);
-  store.conversationState.sessionErrorsBySession.delete(key);
-  if (!options.preserveComposer) {
-    store.conversationState.composerDraftsBySession.delete(key);
-    store.conversationState.composerAttachmentsBySession.delete(key);
-    await store.persistComposerAttachments(key, []);
-  }
+  const release = beginSending(store, sessionRef);
   try {
-    await store.driver.sendUserMessage(sessionRef, {
-      text,
-      attachments: toSessionAttachments(attachments),
-    });
-  } catch (error) {
-    if (rollbackOptimisticMessageOnError) {
-      const transcript = store.conversationState.transcriptCache.get(key) ?? [];
-      store.conversationState.transcriptCache.set(
-        key,
-        transcript.filter((message) => message.id !== optimisticMessageId),
-      );
-      store.publishSelectedTranscriptFor(sessionRef);
+    const key = sessionKey(sessionRef);
+    const rollbackOptimisticMessageOnError = options.rollbackOptimisticMessageOnError ?? true;
+    if (!store.conversationState.loadedTranscriptKeys.has(key)) {
+      await store.ensureSessionReady(sessionRef);
     }
-    throw error;
+    store.assertRunAllowed?.(sessionRef);
+    if (store.sessionFromState(sessionRef)?.archivedAt) {
+      await store.driver.unarchiveSession(sessionRef);
+    }
+    options.beforeSend?.();
+    store.recordUserMessageRecency(sessionRef);
+    const optimisticMessageId = appendUserMessage(
+      store.conversationState.transcriptCache,
+      sessionRef,
+      text,
+      toTranscriptAttachments(attachments),
+    );
+    store.publishSelectedTranscriptFor(sessionRef);
+    clearActiveAssistantMessage(
+      store.conversationState.activeAssistantMessageBySession,
+      sessionRef,
+    );
+    store.conversationState.sessionErrorsBySession.delete(key);
+    if (!options.preserveComposer) {
+      store.conversationState.composerDraftsBySession.delete(key);
+      store.conversationState.composerAttachmentsBySession.delete(key);
+      await store.persistComposerAttachments(key, []);
+    }
+    try {
+      await store.driver.sendUserMessage(sessionRef, {
+        text,
+        attachments: toSessionAttachments(attachments),
+      });
+    } catch (error) {
+      if (rollbackOptimisticMessageOnError) {
+        const transcript = store.conversationState.transcriptCache.get(key) ?? [];
+        store.conversationState.transcriptCache.set(
+          key,
+          transcript.filter((message) => message.id !== optimisticMessageId),
+        );
+        store.publishSelectedTranscriptFor(sessionRef);
+      }
+      throw error;
+    }
+  } finally {
+    release();
   }
 }
 
@@ -848,23 +939,11 @@ async function runComposerCommand(
   const key = sessionKey(sessionRef);
 
   if (parsed.type === "model") {
-    await store.driver.setSessionModel(sessionRef, {
-      provider: parsed.provider,
-      modelId: parsed.modelId,
-    });
-    syncSessionConfig(store, key, { provider: parsed.provider, modelId: parsed.modelId });
-    return finishComposerCommand(
-      store,
-      sessionRef,
-      key,
-      `Model set to ${parsed.provider}:${parsed.modelId}`,
-    );
+    return setSessionModel(store, sessionRef, parsed.provider, parsed.modelId);
   }
 
   if (parsed.type === "thinking") {
-    await store.driver.setSessionThinkingLevel(sessionRef, parsed.thinkingLevel);
-    syncSessionConfig(store, key, { thinkingLevel: parsed.thinkingLevel });
-    return finishComposerCommand(store, sessionRef, key, `Thinking set to ${parsed.thinkingLevel}`);
+    return setSessionThinkingLevel(store, sessionRef, parsed.thinkingLevel);
   }
 
   if (parsed.type === "status") {

@@ -1141,12 +1141,14 @@ export class DesktopAppStore {
     sessionRef: SessionRef,
     text: string,
     deliverAs: "steer" | "followUp",
+    beforeSubmit?: () => void,
   ): Promise<DesktopAppState> {
     await this.initialize();
     if (!this.sessionFromState(sessionRef)) throw new Error("Session no longer exists");
     await this.ensureSessionReady(sessionRef);
     return this.conversationOwner.submitComposerToSession(sessionRef, text, [], {
       deliverAs,
+      beforeSend: beforeSubmit,
       allowCommands: false,
       preserveComposer: true,
     });

@@ -2,9 +2,11 @@
 import { request } from "node:http";
 import { pipeline } from "node:stream/promises";
 import { readFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
+
+import { controlPaths, defaultControlDirectory } from "./lib/control-paths.mjs";
+import { readControlToken } from "./lib/control-token.mjs";
 
 const usage = `Usage:
   lancer-ctl sessions [--json]
@@ -12,6 +14,7 @@ const usage = `Usage:
   lancer-ctl logs <id|title> [--since seq] [--json]
   lancer-ctl stream [id|title] [--since seq]
   lancer-ctl stop <id|title>
+  lancer-ctl set-model <id|title> <provider/model-id>
   lancer-ctl set-thinking <id|title> off|minimal|low|medium|high|xhigh|max
   lancer-ctl set-result <id|title> <path>
   lancer-ctl set-stage <id|title> [--stage text|null] [--progress number|null]
@@ -88,6 +91,7 @@ async function main() {
     stream: ["since"],
     stop: [],
     "set-thinking": [],
+    "set-model": [],
     "set-result": [],
     "set-stage": ["stage", "progress"],
   }[command];
@@ -97,16 +101,12 @@ async function main() {
     if (key !== "directory" && !allowed.includes(key))
       throw new Error(`Option ${key} is not valid for ${command}`);
   const directory = resolve(
-    options.directory ||
-      process.env.LANCER_USER_DATA_DIR ||
-      (process.platform === "darwin"
-        ? join(homedir(), "Library", "Application Support", "Lancer")
-        : join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "Lancer")),
+    options.directory || process.env.LANCER_USER_DATA_DIR || defaultControlDirectory(),
   );
-  const socketPath = join(directory, "control.sock");
+  const { socketPath, tokenPath } = controlPaths(directory);
   let token;
   try {
-    token = (await readFile(join(directory, "control.token"), "utf8")).trim();
+    token = await readControlToken(tokenPath);
   } catch {
     throw new Error(
       `Lancer is not running with local control enabled at ${directory}. Start Lancer, enable the API, or select --user-data-dir.`,
@@ -194,6 +194,11 @@ async function main() {
   } else if (command === "stream") {
     if (positional.length > 1) throw new Error("stream accepts at most one session");
     input.session = positional[0];
+  } else if (command === "set-model") {
+    if (positional.length !== 2 || !/^[^/\s]+\/[^\s]+$/.test(positional[1]))
+      throw new Error("set-model requires a session and exact provider/model-id");
+    input.session = positional[0];
+    input.model = positional[1];
   } else if (command === "set-thinking") {
     if (positional.length !== 2)
       throw new Error("set-thinking requires a session and thinking level");
