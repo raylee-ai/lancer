@@ -11,7 +11,14 @@ from lancer_eval.adapters.claude_code import ClaudeCodeAdapter
 from lancer_eval.adapters.codex import CodexAdapter
 from lancer_eval.adapters.lancer import LancerAdapter
 from lancer_eval.adapters.mock import MockAdapter
-from lancer_eval.diffutil import extract_unified_diff, files_in_diff, redact, secret_values, sha256_text
+from lancer_eval.diffutil import (
+    extract_unified_diff,
+    files_in_diff,
+    redact,
+    redact_obj,
+    secret_values,
+    sha256_text,
+)
 from lancer_eval.failures import apply_judge, attribute_failure, judge_failure, tool_error_in_log
 from lancer_eval.grading import (
     grade_lightweight,
@@ -156,7 +163,7 @@ def execute(
             _write_instance(instance_dir, record, secrets)
         records.extend(adapter_records)
 
-    summary = _summary(config, records, skipped, grade_mode, fallback)
+    summary = _summary(config, records, skipped, grade_mode, fallback, secrets)
     (config.output_dir / "summary.json").write_text(
         json.dumps(summary, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
@@ -170,14 +177,15 @@ def _run_one(config: RunConfig, adapter, task: InstanceSpec, grade_mode: str, se
     instance_dir.mkdir(parents=True, exist_ok=True)
     workspace = instance_dir / "repo"
     prompt = build_prompt(task, include_hints=config.include_hints)
-    (instance_dir / "prompt.txt").write_text(prompt, encoding="utf-8")
+    (instance_dir / "prompt.txt").write_text(redact(prompt, secrets), encoding="utf-8")
     base = {
         "adapter": adapter.name,
         "instance_id": task.instance_id,
         "repo": task.repo,
         "gold_files": list(task.gold_files),
         "patch": "",
-        "patch_applies": False,
+        "patch_applies": None,
+        "prompt": prompt,
         "resolved": None,
         "grade_mode": grade_mode if grade_mode != "official" else "lightweight",
         "official": False,
@@ -195,6 +203,7 @@ def _run_one(config: RunConfig, adapter, task: InstanceSpec, grade_mode: str, se
         "error": None,
         "log": "",
         "touched_files": [],
+        "collect_failed": False,
     }
     try:
         prepare_workspace(task, workspace, timeout=config.clone_timeout)
@@ -217,6 +226,7 @@ def _run_one(config: RunConfig, adapter, task: InstanceSpec, grade_mode: str, se
             patch = collect_patch(workspace, task.base_commit)
         except WorkspaceError as exc:
             patch = ""
+            base["collect_failed"] = True
             result.log += f"\ncollect_patch failed: {exc}\n"
             result.error = result.error or str(exc)
     if not (patch or "").strip():
@@ -242,10 +252,21 @@ def _run_one(config: RunConfig, adapter, task: InstanceSpec, grade_mode: str, se
             "touched_files": files_in_diff(patch),
         }
     )
-    if grade_mode == "local_commands" and task.test_command:
-        grade = grade_local_command(workspace, task, patch, timeout=config.grade_timeout)
-    else:
-        grade = grade_lightweight(workspace, task, patch)
+    try:
+        if grade_mode == "local_commands" and task.test_command:
+            grade = grade_local_command(workspace, task, patch, timeout=config.grade_timeout)
+        else:
+            grade = grade_lightweight(workspace, task, patch)
+    except WorkspaceError as exc:
+        grade = GradeResult(
+            grade_mode=grade_mode if grade_mode != "official" else "lightweight",
+            official=False,
+            resolved=None,
+            patch_applies=None,
+            tests_executed=False,
+            infra_error=True,
+            detail=str(exc),
+        )
     _apply_grade(base, grade)
     _write_instance(instance_dir, base, secrets)
     return base
@@ -276,16 +297,18 @@ def _apply_official(config: RunConfig, adapter_name: str, records: list[dict]) -
         grade = grade_from_report(record["instance_id"], reports.get(record["instance_id"]), log=log or "")
         if returncode not in {0, None} and grade.infra_error:
             grade.detail = f"swebench exited {returncode}. {grade.detail}"
-        if grade.infra_error:
-            grade.patch_applies = record["patch_applies"]
         _apply_grade(record, grade)
+    log_path = config.output_dir / adapter_name / "swebench.log"
+    if log_path.is_file():
+        log_path.write_text(redact(log_path.read_text(encoding="utf-8"), secret_values(dict(os.environ))), encoding="utf-8")
 
 
 def _apply_grade(record: dict, grade: GradeResult) -> None:
     record["grade_mode"] = grade.grade_mode
     record["official"] = grade.official
     record["resolved"] = grade.resolved
-    record["patch_applies"] = grade.patch_applies
+    if grade.patch_applies is not None:
+        record["patch_applies"] = grade.patch_applies
     record["tests_executed"] = grade.tests_executed
     record["infra_error"] = grade.infra_error
     record["grade_detail"] = grade.detail
@@ -302,13 +325,14 @@ def _attribute(config: RunConfig, record: dict, secrets: list[str], judge_comple
     failure = attribute_failure(
         timed_out=bool(record.get("timed_out")),
         setup_failed=bool(record.get("setup_failed")),
+        collect_failed=bool(record.get("collect_failed")),
         patch=record.get("patch") or "",
         patch_applies=bool(record.get("patch_applies")),
         official=bool(record.get("official")),
         resolved=record.get("resolved"),
         tests_executed=bool(record.get("tests_executed")),
         infra_error=bool(record.get("infra_error")),
-        tool_error=tool_error_in_log(record.get("log") or ""),
+        tool_error=tool_error_in_log(record.get("log") or "", ignore_text=record.get("prompt") or ""),
         gold_files=list(record.get("gold_files") or []),
         touched_files=list(record.get("touched_files") or []),
     )
@@ -332,8 +356,8 @@ def _attribute(config: RunConfig, record: dict, secrets: list[str], judge_comple
     record["llm_judge"] = failure.get("llm_judge")
 
 
-def _summary(config: RunConfig, records: list[dict], skipped: list[dict], grade_mode: str, fallback: str | None) -> dict:
-    public = [_public_record(record) for record in records]
+def _summary(config: RunConfig, records: list[dict], skipped: list[dict], grade_mode: str, fallback: str | None, secrets: list[str]) -> dict:
+    public = [_public_record(record, secrets) for record in records]
     by_adapter: dict[str, list[dict]] = {}
     for record in public:
         by_adapter.setdefault(record["adapter"], []).append(record)
@@ -348,21 +372,22 @@ def _summary(config: RunConfig, records: list[dict], skipped: list[dict], grade_
         "grade_mode": grade_mode,
         "grade_fallback_reason": fallback,
         "adapters": [summarize_adapter(name, rows) for name, rows in by_adapter.items()],
-        "skipped_adapters": skipped,
+        "skipped_adapters": redact_obj(skipped, secrets),
         "instances": public,
     }
 
 
-def _public_record(record: dict) -> dict:
-    hidden = {"patch", "log", "gold_files"}
-    return {key: value for key, value in record.items() if key not in hidden}
+def _public_record(record: dict, secrets: list[str] | None = None) -> dict:
+    hidden = {"patch", "log", "gold_files", "prompt"}
+    public = {key: value for key, value in record.items() if key not in hidden}
+    return redact_obj(public, secrets or [])
 
 
 def _write_instance(directory: Path, record: dict, secrets: list[str]) -> None:
     patch = record.get("patch") or ""
     (directory / "patch.diff").write_text(patch, encoding="utf-8")
     (directory / "agent.log").write_text(redact(record.get("log") or "", secrets), encoding="utf-8")
-    public = _public_record(record)
+    public = _public_record(record, secrets)
     public["patch_bytes"] = len(patch.encode("utf-8"))
     public["patch_sha256"] = sha256_text(patch)
     (directory / "result.json").write_text(

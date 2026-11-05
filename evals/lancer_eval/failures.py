@@ -19,14 +19,24 @@ _TOOL_ERROR = re.compile(
 )
 
 
-def tool_error_in_log(log: str) -> bool:
-    return bool(log and _TOOL_ERROR.search(log))
+def tool_error_in_log(log: str, *, ignore_text: str = "") -> bool:
+    """Look for a failed command in the agent log.
+
+    `ignore_text` is removed first so a traceback copied from the issue prompt
+    is not treated as a tool failure.
+    """
+
+    scanned = log or ""
+    if ignore_text:
+        scanned = scanned.replace(ignore_text, "")
+    return bool(scanned and _TOOL_ERROR.search(scanned))
 
 
 def attribute_failure(
     *,
     timed_out: bool,
     setup_failed: bool,
+    collect_failed: bool = False,
     patch: str,
     patch_applies: bool,
     official: bool,
@@ -48,7 +58,7 @@ def attribute_failure(
     if timed_out:
         bucket = "timeout"
         reasons.append("the agent exceeded the wall-time limit")
-    elif setup_failed or infra_error:
+    elif setup_failed or collect_failed or infra_error:
         bucket = "environment_setup_error"
         reasons.append("repository setup or the evaluation harness failed before a test result")
     elif resolved is True:

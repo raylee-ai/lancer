@@ -24,7 +24,7 @@ Lancer 把模型调用放在正在运行的桌面应用里：界面发送，prel
 - 可选评判模型：`OPENAI_API_KEY`，地址用 `OPENAI_BASE_URL` 或 `--judge-base-url`。
 - Lancer 用的是已经打开的应用里配置好的供应商。`--base-url` 不会改应用设置。要走公司网关，先在 Lancer 里配好端点，再用 `--model provider/model-id`。
 
-每个实例的流程：按 manifest 里的 `base_commit` 检出仓库，把 issue 正文交给适配器，用 `git diff` 收集补丁，再打分。官方打分调用 `python -m swebench.harness.run_evaluation`，在 Docker 里跑 FAIL_TO_PASS 和 PASS_TO_PASS。没有 Docker，或没有安装 `swebench` 时，退回到轻量检查：在干净检出上执行 `git apply --check`。这种结果的 `resolved` 是空的，resolve rate 显示为 `—`，不是 0%。报告里会写明退回原因。
+每个实例的流程：按 manifest 里的 `base_commit` 检出仓库，把 issue 正文交给适配器，用 `git diff` 收集补丁，再打分。官方打分调用 `python -m swebench.harness.run_evaluation`，在 Docker 里跑 FAIL_TO_PASS 和 PASS_TO_PASS。没有 Docker，或没有安装 `swebench` 时，退回到轻量检查：在干净检出上执行 `git apply --check`。这种结果的 `resolved` 没有测量，报告写成「未运行」，不是 0%。报告里会写明退回原因。
 
 失败归类是启发式，按这个顺序只取一个：
 
@@ -162,7 +162,7 @@ API keys are read from the environment only. They are not written to the repo, t
 - Optional judge: `OPENAI_API_KEY`, with `OPENAI_BASE_URL` or `--judge-base-url`.
 - Lancer uses the provider already configured in the open app. `--base-url` does not change app settings. Configure the company gateway in Lancer, then pass `--model provider/model-id`.
 
-For each instance the runner checks out `base_commit`, gives the issue text to the adapter, collects `git diff`, and grades the patch. Official grading runs `python -m swebench.harness.run_evaluation` (FAIL_TO_PASS and PASS_TO_PASS in Docker). If Docker or the `swebench` package is missing, the runner falls back to `git apply --check` on a clean checkout. `resolved` stays null and the resolve rate renders as `—`, not as 0%. The report names the fallback reason.
+For each instance the runner checks out `base_commit`, gives the issue text to the adapter, collects `git diff`, and grades the patch. Official grading runs `python -m swebench.harness.run_evaluation` (FAIL_TO_PASS and PASS_TO_PASS in Docker). If Docker or the `swebench` package is missing, the runner falls back to `git apply --check` on a clean checkout. `resolved` is not measured. The report prints 未运行, not 0%. The report names the fallback reason.
 
 Failure buckets are heuristics. The first match wins:
 

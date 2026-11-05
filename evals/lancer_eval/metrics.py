@@ -32,7 +32,8 @@ def _rate(numerator: int, denominator: int) -> float | None:
 def summarize_adapter(name: str, records: list[dict]) -> dict:
     graded = [record for record in records if record.get("resolved") is not None]
     resolved = sum(1 for record in graded if record["resolved"] is True)
-    applies = sum(1 for record in records if record.get("patch_applies") is True)
+    checked = [record for record in records if isinstance(record.get("patch_applies"), bool)]
+    applies = sum(1 for record in checked if record["patch_applies"] is True)
     walls = [float(record["wall_time_seconds"]) for record in records if record.get("wall_time_seconds") is not None]
     input_tokens = [
         int(record["input_tokens"]) for record in records if record.get("input_tokens") is not None
@@ -54,8 +55,9 @@ def summarize_adapter(name: str, records: list[dict]) -> dict:
         "official_graded": len(graded),
         "resolved": resolved if graded else None,
         "resolve_rate": _rate(resolved, len(graded)),
-        "patch_applies": applies,
-        "patch_applies_rate": _rate(applies, len(records)),
+        "patch_applies": applies if checked else None,
+        "patch_applies_observed": len(checked),
+        "patch_applies_rate": _rate(applies, len(checked)),
         "mean_wall_time_seconds": _mean(walls),
         "median_wall_time_seconds": _median(walls),
         "input_tokens": _sum([float(value) for value in input_tokens]),

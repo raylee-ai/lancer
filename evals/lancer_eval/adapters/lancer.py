@@ -94,6 +94,14 @@ class LancerAdapter:
         prompt = build_prompt(task, include_hints=self.include_hints)
         prompt_path = workspace.parent / f"{task.instance_id}.prompt.txt"
         prompt_path.write_text(prompt, encoding="utf-8")
+        try:
+            return self._run_submitted(task, workspace, timeout, prompt_path)
+        finally:
+            prompt_path.unlink(missing_ok=True)
+
+    def _run_submitted(
+        self, task: InstanceSpec, workspace: Path, timeout: float, prompt_path: Path
+    ) -> AgentResult:
         new_args = [
             "new",
             "--cwd",

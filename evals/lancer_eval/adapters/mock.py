@@ -34,7 +34,7 @@ class MockAdapter:
                 output_tokens=case.get("output_tokens"),
             )
         cost = case.get("cost_usd")
-        log = f"mock adapter mode={mode} instance={task.instance_id}\n"
+        log = f"mock adapter mode={mode} instance={task.instance_id}\n{case.get('extra_log') or ''}"
         if mode == "empty":
             return AgentResult(
                 patch="",
@@ -45,6 +45,7 @@ class MockAdapter:
                 cost_source="adapter" if cost is not None else None,
                 tool_calls=case.get("tool_calls"),
                 turns=case.get("turns"),
+                error=case.get("error"),
             )
         if mode == "edit":
             _edit(workspace, case["relpath"], case["old"], case["new"])

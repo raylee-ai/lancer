@@ -17,7 +17,13 @@ from lancer_eval.adapters.claude_code import claude_command, claude_env, parse_c
 from lancer_eval.adapters.codex import codex_command, codex_env, parse_codex_jsonl
 from lancer_eval.adapters.lancer import parse_logs, parse_new_result, parse_tail
 from lancer_eval.diffutil import extract_unified_diff, files_in_diff, redact
-from lancer_eval.failures import apply_judge, attribute_failure, judge_failure, openai_compatible_complete
+from lancer_eval.failures import (
+    apply_judge,
+    attribute_failure,
+    judge_failure,
+    openai_compatible_complete,
+    tool_error_in_log,
+)
 from lancer_eval.grading import grade_from_report, parse_swebench_reports, select_grade_mode, swebench_command
 from lancer_eval.metrics import summarize_adapter
 from lancer_eval.prompt import build_prompt
@@ -141,7 +147,10 @@ class PipelineTest(unittest.TestCase):
             self.assertIn("Not a published benchmark score", report)
             adapter = summary["adapters"][0]
             self.assertIsNone(adapter["resolve_rate"])
+            self.assertIsNone(by_id["local__demo-7"]["patch_applies"])
             self.assertEqual(adapter["patch_applies"], 3)
+            self.assertEqual(adapter["patch_applies_observed"], 6)
+            self.assertAlmostEqual(adapter["patch_applies_rate"], 0.5)
             self.assertIn("context_retrieval_miss", adapter["failure_buckets"])
             prompt = (output / "mock" / "local__demo-1" / "prompt.txt").read_text(encoding="utf-8")
             self.assertNotIn("src/app.py", prompt)
@@ -184,7 +193,9 @@ class PipelineTest(unittest.TestCase):
         markdown = render_markdown(summary)
         row = next(line for line in markdown.splitlines() if line.startswith("| mock |"))
         cells = [cell.strip() for cell in row.strip("|").split("|")]
-        self.assertEqual(cells[4], "—")
+        self.assertEqual(cells[3], "未运行")
+        self.assertEqual(cells[4], "未运行")
+        self.assertNotIn("0.0%", cells[4])
         self.assertIn("claude-code", markdown)
         self.assertIn("not_installed", markdown)
 
@@ -195,13 +206,18 @@ class PipelineTest(unittest.TestCase):
                 {"resolved": True, "patch_applies": True, "wall_time_seconds": 10, "input_tokens": 100, "output_tokens": 20, "cost_usd": 1.5, "tool_calls": 3, "turns": 2},
                 {"resolved": False, "patch_applies": True, "wall_time_seconds": 30, "input_tokens": None, "output_tokens": None, "cost_usd": None, "tool_calls": None, "turns": None},
                 {"resolved": None, "patch_applies": False, "wall_time_seconds": 5},
+                {"resolved": None, "patch_applies": None, "wall_time_seconds": None},
             ],
         )
         self.assertEqual(metrics["official_graded"], 2)
         self.assertEqual(metrics["resolved"], 1)
         self.assertAlmostEqual(metrics["resolve_rate"], 0.5)
         self.assertEqual(metrics["patch_applies"], 2)
+        self.assertEqual(metrics["patch_applies_observed"], 3)
         self.assertAlmostEqual(metrics["patch_applies_rate"], 2 / 3)
+        untouched = summarize_adapter("skipped", [{"resolved": None, "patch_applies": None}])
+        self.assertIsNone(untouched["patch_applies"])
+        self.assertIsNone(untouched["patch_applies_rate"])
         self.assertEqual(metrics["input_tokens"], 100)
         self.assertEqual(metrics["tokens_observed"], 1)
         self.assertEqual(metrics["cost_usd"], 1.5)
@@ -258,6 +274,46 @@ class PipelineTest(unittest.TestCase):
             self.assertEqual(summary["instances"], [])
             self.assertEqual(summary["skipped_adapters"][0]["reason"], "not_installed")
             self.assertEqual(summary["adapters"], [])
+
+    def test_secret_values_are_not_written(self) -> None:
+        import tempfile
+
+        key = "sk-test-eval-secret-value"
+        os.environ["OPENAI_API_KEY"] = key
+        self.addCleanup(os.environ.pop, "OPENAI_API_KEY", None)
+        with tempfile.TemporaryDirectory() as tmp:
+            origin, commit = _repo(Path(tmp))
+            output = Path(tmp) / "out"
+            execute(
+                RunConfig(
+                    adapters=["mock"],
+                    output_dir=output,
+                    mock_spec={
+                        "instances": {
+                            "local__demo-1": {
+                                "mode": "empty",
+                                "extra_log": f"leaked {key}\n",
+                                "error": f"failed with {key}",
+                            }
+                        }
+                    },
+                    quiet=True,
+                ),
+                [_task("local__demo-1", origin, commit)],
+                docker=False,
+                swebench=False,
+            )
+            written = "\n".join(
+                path.read_text(encoding="utf-8")
+                for path in (
+                    output / "summary.json",
+                    output / "report.md",
+                    output / "mock" / "local__demo-1" / "agent.log",
+                    output / "mock" / "local__demo-1" / "result.json",
+                )
+            )
+            self.assertNotIn(key, written)
+            self.assertIn("[REDACTED]", written)
 
     def test_custom_task_can_run_a_host_command(self) -> None:
         import tempfile
@@ -334,6 +390,9 @@ class AttributionTest(unittest.TestCase):
             touched_files=["README.md"],
         )
         self.assertEqual(miss["bucket"], "context_retrieval_miss")
+        echoed = "Traceback (most recent call last)\nValueError: sample"
+        self.assertFalse(tool_error_in_log(f"prompt:\n{echoed}\nagent finished", ignore_text=echoed))
+        self.assertTrue(tool_error_in_log(f"prompt:\n{echoed}\ncommand failed: pytest", ignore_text=echoed))
 
     def test_judge_is_labeled_and_optional(self) -> None:
         heuristic = {"bucket": "tests_fail", "reasons": ["tests failed"], "source": "heuristic"}

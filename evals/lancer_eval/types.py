@@ -86,7 +86,7 @@ class GradeResult:
     grade_mode: str
     official: bool
     resolved: bool | None
-    patch_applies: bool
+    patch_applies: bool | None
     tests_executed: bool
     infra_error: bool
     detail: str

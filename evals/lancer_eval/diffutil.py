@@ -54,6 +54,18 @@ def redact(text: str, secrets: list[str]) -> str:
     return redacted
 
 
+def redact_obj(value, secrets: list[str]):
+    """Redact secret strings anywhere in a JSON-like value before it is written."""
+
+    if isinstance(value, str):
+        return redact(value, secrets)
+    if isinstance(value, list):
+        return [redact_obj(item, secrets) for item in value]
+    if isinstance(value, dict):
+        return {key: redact_obj(item, secrets) for key, item in value.items()}
+    return value
+
+
 def secret_values(env: dict[str, str]) -> list[str]:
     names = (
         "OPENAI_API_KEY",

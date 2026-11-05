@@ -291,7 +291,7 @@ def grade_from_report(instance_id: str, report: dict | None, *, log: str) -> Gra
             grade_mode="official",
             official=True,
             resolved=None,
-            patch_applies=False,
+            patch_applies=None,
             tests_executed=False,
             infra_error=True,
             detail=f"no SWE-bench report for {instance_id}. {log[-1000:]}",
@@ -304,13 +304,13 @@ def grade_from_report(instance_id: str, report: dict | None, *, log: str) -> Gra
         resolved = None
     applied = report.get("patch_successfully_applied")
     if not isinstance(applied, bool):
-        applied = bool(report.get("patch_exists")) and resolved is not None
+        applied = None
     return GradeResult(
         grade_mode="official",
         official=True,
         resolved=resolved,
-        patch_applies=bool(applied),
-        tests_executed=resolved is not None and bool(fail_to_pass or pass_to_pass or report.get("resolved") is not None),
+        patch_applies=applied,
+        tests_executed=resolved is not None,
         infra_error=resolved is None,
         detail="official swebench report",
         fail_to_pass=fail_to_pass if isinstance(fail_to_pass, dict) else None,
