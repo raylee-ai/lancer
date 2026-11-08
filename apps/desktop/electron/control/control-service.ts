@@ -151,14 +151,14 @@ export class ControlService {
           zone: lancerZoneById(conversationZoneId(session.title)).label,
           workspace: workspace.name,
           cwd: workspace.path,
-          executionCwd:
-            typeof saved?.worktreePath === "string" && saved.worktreePath
-              ? saved.worktreePath
-              : workspace.path,
           model: explicitModel ?? defaultModel,
           thinkingLevel: session.config?.thinkingLevel ?? null,
           modelSource: explicitModel ? "session" : defaultModel ? "workspace-default" : "unknown",
           ...saved,
+          executionCwd:
+            (typeof saved?.executionCwd === "string" && saved.executionCwd) ||
+            (typeof saved?.worktreePath === "string" && saved.worktreePath) ||
+            workspace.path,
           elapsed: Number.isFinite(elapsed) ? elapsed : null,
           ...observed,
           lastLine: observed?.lastLine ?? this.journal.logs(ref).at(-1)?.text ?? null,
@@ -205,7 +205,7 @@ export class ControlService {
     return result;
   }
 
-  private send(ref: SessionRef, message: string, mode: unknown) {
+  private async send(ref: SessionRef, message: string, mode: unknown) {
     if (mode !== "send" && mode !== "queue" && mode !== "steer")
       throw new ControlError("INVALID_REQUEST", "mode must be send, queue or steer");
     const current = this.session(ref);
@@ -224,6 +224,30 @@ export class ControlService {
         "Session is starting or settling; inspect status before sending again",
       );
     const key = sessionKey(ref);
+    if (this.store.getControlMetadata && this.store.updateControlMetadata) {
+      const metadata = await this.store.getControlMetadata(ref);
+      if (metadata?.worktreeInitFailure) {
+        let failure = metadata.worktreeInitFailure;
+        try {
+          const parsed: unknown = JSON.parse(failure);
+          if (
+            parsed &&
+            typeof parsed === "object" &&
+            "command" in parsed &&
+            typeof parsed.command === "string" &&
+            "exitCode" in parsed &&
+            "output" in parsed &&
+            typeof parsed.output === "string"
+          ) {
+            failure = `Command: ${parsed.command}\nExit code: ${String(parsed.exitCode)}\n${parsed.output}`;
+          }
+        } catch {
+          // Keep the stored diagnostic as-is when it is not valid JSON.
+        }
+        message = `Worktree initialization failed:\n${failure}\n\n${message}`;
+        await this.updateMetadata(ref, { worktreeInitFailure: null }, false);
+      }
+    }
     const submission: Submission = { id: randomUUID(), mode, state: "pending" };
     this.latest.set(key, submission);
     this.pending.set(key, (this.pending.get(key) ?? 0) + 1);

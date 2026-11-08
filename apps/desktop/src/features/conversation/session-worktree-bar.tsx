@@ -56,19 +56,32 @@ export function SessionWorktreeBar({
         <button
           type="button"
           data-testid="session-worktree-merge"
-          disabled={busy || session.status === "running"}
+          disabled={
+            busy || session.status === "running" || (worktree.childThread && !worktree.completedSha)
+          }
           onClick={() => {
-            if (
-              !window.confirm(
-                t("threads.worktree.mergeConfirm", { branch: worktree.branch, base: baseLabel }),
-              )
-            ) {
+            const confirmMessage = worktree.childThread
+              ? t("threads.worktree.childMergeConfirm", {
+                  sha: worktree.completedSha?.slice(0, 12) ?? "",
+                })
+              : t("threads.worktree.mergeConfirm", {
+                  branch: worktree.branch,
+                  base: baseLabel,
+                });
+            if (!window.confirm(confirmMessage)) {
               return;
             }
-            run(() => api.mergeSessionWorktree(target));
+            run(() =>
+              api.mergeSessionWorktree(
+                target,
+                worktree.childThread ? worktree.completedSha : undefined,
+              ),
+            );
           }}
         >
-          {t("threads.worktree.merge", { branch: baseLabel })}
+          {worktree.childThread
+            ? t("threads.worktree.childMerge")
+            : t("threads.worktree.merge", { branch: baseLabel })}
         </button>
         <button
           type="button"

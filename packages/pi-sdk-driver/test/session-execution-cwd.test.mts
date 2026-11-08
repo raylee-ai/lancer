@@ -77,11 +77,22 @@ await test("session tools use the resolved execution directory and reopen from c
 
   await driver.closeSession(snapshot.ref);
   const catalogs = new JsonCatalogStore({ catalogFilePath });
-  await catalogs.sessions.updateControlMetadata(snapshot.ref, { worktreePath: otherPath });
+  await catalogs.sessions.updateControlMetadata(snapshot.ref, {
+    worktreePath: otherPath,
+    executionCwd: worktreePath,
+  });
+  await driver.openSession(snapshot.ref);
+  assert.equal(seen.at(-1), worktreePath);
+
+  await driver.closeSession(snapshot.ref);
+  await catalogs.sessions.updateControlMetadata(snapshot.ref, { executionCwd: null });
   await driver.openSession(snapshot.ref);
   assert.equal(seen.at(-1), otherPath);
 
-  await catalogs.sessions.updateControlMetadata(snapshot.ref, { worktreePath: null });
+  await catalogs.sessions.updateControlMetadata(snapshot.ref, {
+    worktreePath: null,
+    executionCwd: null,
+  });
   await driver.retargetExecutionCwd(snapshot.ref);
   assert.equal(seen.at(-1), workspacePath);
   await driver.closeSession(snapshot.ref);

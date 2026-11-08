@@ -43,6 +43,9 @@ export const threadsMessages = defineMessages(
     "threads.worktree.truncated": "The diff was truncated.",
     "threads.worktree.mergeConfirm":
       "Merge {branch} into {base}? Uncommitted worktree edits are committed on the session branch first. The workspace checkout must be clean.",
+    "threads.worktree.childMerge": "Apply reviewed child changes",
+    "threads.worktree.childMergeConfirm":
+      "Apply the recorded child completion {sha} to its parent session directory and remove this child worktree?",
     "threads.worktree.discardConfirm":
       "Discard {branch} and delete its worktree? The conversation stays. Later turns run in the workspace folder.",
     "threads.worktree.detached": "the current branch",
@@ -53,6 +56,12 @@ export const threadsMessages = defineMessages(
     "threads.workspace.removeConfirm": "Remove {name} from Lancer? This will not delete any files.",
     "threads.workspace.removeWorktreeConfirm":
       "Remove worktree {name}? This removes the git worktree from disk.",
+    "threads.workspace.worktreeInitCommand": "Worktree initialization command",
+    "threads.workspace.worktreeInitHint":
+      "Run this trusted command in each new worktree. It is stored in Lancer settings; repository scripts are never read automatically.",
+    "threads.workspace.worktreeInitSave": "Save command",
+    "threads.workspace.worktreeInitSaved": "Saved",
+    "threads.workspace.worktreeInitPlaceholder": "e.g. pnpm install --frozen-lockfile",
 
     "threads.sidebar.widthLabel": "Sidebar width",
     "threads.sidebar.newThread": "New thread",
@@ -135,6 +144,9 @@ export const threadsMessages = defineMessages(
     "threads.worktree.truncated": "diff 已截断。",
     "threads.worktree.mergeConfirm":
       "要把 {branch} 合并进 {base} 吗？工作树里未提交的修改会先提交到会话分支。工作区检出必须是干净的。",
+    "threads.worktree.childMerge": "应用已核对的子会话改动",
+    "threads.worktree.childMergeConfirm":
+      "要将子会话完成提交 {sha} 应用到父会话执行目录并删除此子工作树吗？",
     "threads.worktree.discardConfirm":
       "要丢弃 {branch} 并删除它的工作树吗？会话记录会保留。之后的回合在工作区目录里执行。",
     "threads.worktree.detached": "当前分支",
@@ -145,6 +157,12 @@ export const threadsMessages = defineMessages(
     "threads.workspace.removeConfirm": "要从 Lancer 中移除“{name}”吗？这不会删除任何文件。",
     "threads.workspace.removeWorktreeConfirm":
       "要移除工作树“{name}”吗？这会从磁盘上删除该 Git 工作树。",
+    "threads.workspace.worktreeInitCommand": "工作树初始化命令",
+    "threads.workspace.worktreeInitHint":
+      "在每个新工作树目录中运行此可信命令。命令保存在 Lancer 设置中，不会自动读取仓库里的脚本。",
+    "threads.workspace.worktreeInitSave": "保存命令",
+    "threads.workspace.worktreeInitSaved": "已保存",
+    "threads.workspace.worktreeInitPlaceholder": "例如 pnpm install --frozen-lockfile",
 
     "threads.sidebar.widthLabel": "侧边栏宽度",
     "threads.sidebar.newThread": "新会话",

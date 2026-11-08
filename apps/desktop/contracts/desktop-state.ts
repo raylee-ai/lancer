@@ -102,6 +102,8 @@ export interface SessionWorktreeInfo {
   readonly path: string;
   readonly branch: string;
   readonly baseBranch: string;
+  readonly childThread?: boolean;
+  readonly completedSha?: string;
 }
 
 export interface SessionWorktreeDiff extends SessionWorktreeInfo {
@@ -158,6 +160,16 @@ export interface OrchestrationEvidenceGitRef {
   readonly headSha?: string;
 }
 
+export interface OrchestrationWorktreeCompletion {
+  readonly isolation: "worktree" | "shared";
+  readonly branch?: string;
+  readonly baseSha?: string;
+  readonly completedSha?: string;
+  readonly files?: readonly string[];
+  readonly stat?: string;
+  readonly patchTruncated?: boolean;
+}
+
 export interface OrchestrationEvidenceRecord {
   readonly id: string;
   readonly childThreadId: string;
@@ -172,6 +184,7 @@ export interface OrchestrationEvidenceRecord {
   readonly parentSessionId?: string;
   readonly childSessionId?: string;
   readonly git?: OrchestrationEvidenceGitRef;
+  readonly completion?: OrchestrationWorktreeCompletion;
   readonly createdAt: string;
   readonly updatedAt?: string;
 }
@@ -198,6 +211,7 @@ export interface OrchestrationChildTranscriptMessage {
 
 export interface OrchestrationChildThread {
   readonly id: string;
+  readonly isolation?: "worktree" | "shared";
   readonly sourceToolCallId?: string;
   readonly parentWorkspaceId: string;
   readonly parentSessionId: string;
@@ -284,6 +298,7 @@ export interface WorkspaceRecord {
   readonly id: string;
   readonly name: string;
   readonly path: string;
+  readonly worktreeInitCommand?: string;
   readonly lastOpenedAt: string;
   readonly kind: WorkspaceKind;
   readonly rootWorkspaceId?: string;

@@ -30,6 +30,17 @@ test("supports workspace rename and remove from workspace settings", async () =>
     assertExists(workspace, "Expected first workspace");
     await openSettingsSection(window, "General");
 
+    const workspaceASettings = window.locator(`[data-workspace-id="${workspace.id}"]`);
+    const initCommand = workspaceASettings.getByLabel("Worktree initialization command");
+    await initCommand.fill("pnpm install --frozen-lockfile");
+    await workspaceASettings.getByRole("button", { name: "Save command" }).click();
+    await expect
+      .poll(async () => {
+        const latest = await getDesktopState(window);
+        return latest.workspaces.find((entry) => entry.id === workspace.id)?.worktreeInitCommand;
+      })
+      .toBe("pnpm install --frozen-lockfile");
+
     await window
       .getByRole("button", { name: `Workspace actions for ${basename(workspaceA)}` })
       .click();
@@ -41,7 +52,7 @@ test("supports workspace rename and remove from workspace settings", async () =>
     await workspaceMenu.getByRole("button", { name: "Edit name" }).click();
     const renameInput = window.getByLabel(`Rename ${basename(workspaceA)}`);
     await renameInput.fill("Renamed workspace");
-    await window.getByRole("button", { name: "Save" }).click();
+    await window.getByRole("button", { name: "Save", exact: true }).click();
 
     await expect
       .poll(async () => {

@@ -7,6 +7,7 @@ import type {
   OrchestrationChildThread,
   OrchestrationChildTranscriptMessage,
   OrchestrationSupervisionLoop,
+  OrchestrationWorktreeCompletion,
   LanguagePreference,
   ThemeMode,
   ThemePresetId,
@@ -369,6 +370,7 @@ function validateUiState(value: unknown): Record<string, unknown> {
           "parentSessionId",
           "childWorkspaceId",
           "childSessionId",
+          "isolation",
           "title",
           "goal",
           "status",
@@ -402,6 +404,7 @@ function validateUiState(value: unknown): Record<string, unknown> {
         (v) => toOptionalOrchestrationStatus(v) !== undefined,
         `${path}.status`,
       );
+      optional(record, "isolation", (v) => v === "worktree" || v === "shared", `${path}.isolation`);
       if (record.transcript !== undefined) {
         if (!Array.isArray(record.transcript)) fail(`${path}.transcript`);
         for (const message of record.transcript as unknown[]) {
@@ -436,6 +439,7 @@ function validateUiState(value: unknown): Record<string, unknown> {
               "parentSessionId",
               "childSessionId",
               "git",
+              "completion",
               "createdAt",
               "updatedAt",
             ],
@@ -462,6 +466,18 @@ function validateUiState(value: unknown): Record<string, unknown> {
             if (!toEvidenceGit(git)) fail(`${path}.evidence.git`);
             for (const key of ["branchName", "headSha"])
               optional(git, key, string, `${path}.evidence.git.${key}`);
+          }
+          if (evidence.completion !== undefined) {
+            const completion =
+              objectRecord(evidence.completion) ?? fail(`${path}.evidence.completion`);
+            knownKeys(
+              completion,
+              ["isolation", "branch", "baseSha", "completedSha", "files", "stat", "patchTruncated"],
+              `${path}.evidence.completion`,
+            );
+            if (!toEvidenceCompletion(completion)) fail(`${path}.evidence.completion`);
+            for (const key of ["branch", "baseSha", "completedSha", "stat"])
+              optional(completion, key, string, `${path}.evidence.completion.${key}`);
           }
         }
       }
@@ -588,6 +604,10 @@ function toPersistedOrchestrationChildren(value: unknown): OrchestrationChildThr
 
     const sourceToolCallId = stringValue(candidate.sourceToolCallId);
     const status = toOrchestrationStatus(candidate.status);
+    const isolation =
+      candidate.isolation === "worktree" || candidate.isolation === "shared"
+        ? candidate.isolation
+        : undefined;
     const supervisionLoop = toPersistedSupervisionLoop(candidate.supervisionLoop, status);
     return [
       {
@@ -597,6 +617,7 @@ function toPersistedOrchestrationChildren(value: unknown): OrchestrationChildThr
         parentSessionId,
         childWorkspaceId,
         childSessionId,
+        ...(isolation ? { isolation } : {}),
         title,
         goal,
         status,
@@ -637,6 +658,10 @@ function toPersistedEvidence(value: unknown, childThreadId: string): Orchestrati
       gitCandidate && typeof gitCandidate === "object"
         ? toEvidenceGit(gitCandidate as Record<string, unknown>)
         : undefined;
+    const completion =
+      candidate.completion && typeof candidate.completion === "object"
+        ? toEvidenceCompletion(candidate.completion)
+        : undefined;
 
     return [
       {
@@ -659,6 +684,7 @@ function toPersistedEvidence(value: unknown, childThreadId: string): Orchestrati
           ? { childSessionId: stringValue(candidate.childSessionId) }
           : {}),
         ...(git ? { git } : {}),
+        ...(completion ? { completion } : {}),
         createdAt,
         ...(stringValue(candidate.updatedAt)
           ? { updatedAt: stringValue(candidate.updatedAt) }
@@ -667,6 +693,30 @@ function toPersistedEvidence(value: unknown, childThreadId: string): Orchestrati
     ];
   });
   return records.slice(0, MAX_PERSISTED_ORCHESTRATION_EVIDENCE_RECORDS);
+}
+
+function toEvidenceCompletion(value: unknown): OrchestrationWorktreeCompletion | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  if (record.isolation !== "worktree" && record.isolation !== "shared") return undefined;
+  if (
+    record.files !== undefined &&
+    (!Array.isArray(record.files) || !record.files.every((path) => typeof path === "string"))
+  )
+    return undefined;
+  if (record.patchTruncated !== undefined && typeof record.patchTruncated !== "boolean")
+    return undefined;
+  return {
+    isolation: record.isolation,
+    ...(stringValue(record.branch) ? { branch: stringValue(record.branch) } : {}),
+    ...(stringValue(record.baseSha) ? { baseSha: stringValue(record.baseSha) } : {}),
+    ...(stringValue(record.completedSha) ? { completedSha: stringValue(record.completedSha) } : {}),
+    ...(Array.isArray(record.files) ? { files: record.files as string[] } : {}),
+    ...(stringValue(record.stat) ? { stat: stringValue(record.stat) } : {}),
+    ...(typeof record.patchTruncated === "boolean"
+      ? { patchTruncated: record.patchTruncated }
+      : {}),
+  };
 }
 
 function toEvidenceGit(

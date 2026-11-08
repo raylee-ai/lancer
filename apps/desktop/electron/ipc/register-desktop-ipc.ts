@@ -93,6 +93,7 @@ type WorkspaceOwner = Pick<
   | "selectWorkspace"
   | "renameWorkspace"
   | "removeWorkspace"
+  | "setWorktreeInitCommand"
   | "reorderWorkspaces"
   | "createWorktree"
   | "removeWorktree"
@@ -352,6 +353,16 @@ export function registerDesktopIpc({
     run(event, () =>
       owners.workspace.removeWorkspace(expectNonEmptyString(rawWorkspaceId, "workspaceId")),
     ),
+  );
+  ipcMain.handle(
+    desktopIpc.setWorkspaceWorktreeInitCommand,
+    (event, rawWorkspaceId: unknown, rawCommand: unknown) =>
+      run(event, () =>
+        owners.workspace.setWorktreeInitCommand(
+          expectNonEmptyString(rawWorkspaceId, "workspaceId"),
+          expectString(rawCommand, "command"),
+        ),
+      ),
   );
   ipcMain.handle(desktopIpc.reorderWorkspaces, (event, rawOrder: unknown) =>
     run(event, () => owners.workspace.reorderWorkspaces(expectStringArray(rawOrder, "order"))),
@@ -645,8 +656,17 @@ export function registerDesktopIpc({
     windows.windowForSender(event.sender);
     return owners.conversation.getSessionWorktreeDiff(expectSessionTarget(rawTarget));
   });
-  ipcMain.handle(desktopIpc.mergeSessionWorktree, (event, rawTarget: unknown) =>
-    run(event, () => owners.conversation.mergeSessionWorktree(expectSessionTarget(rawTarget))),
+  ipcMain.handle(
+    desktopIpc.mergeSessionWorktree,
+    (event, rawTarget: unknown, rawCompletedSha: unknown) =>
+      run(event, () =>
+        owners.conversation.mergeSessionWorktree(
+          expectSessionTarget(rawTarget),
+          rawCompletedSha === undefined
+            ? undefined
+            : expectNonEmptyString(rawCompletedSha, "completedSha"),
+        ),
+      ),
   );
   ipcMain.handle(desktopIpc.discardSessionWorktree, (event, rawTarget: unknown) =>
     run(event, () => owners.conversation.discardSessionWorktree(expectSessionTarget(rawTarget))),

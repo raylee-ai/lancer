@@ -39,12 +39,20 @@ export interface SessionRuntimeMetadata {
    * Absent or null means the session uses its workspace directory.
    */
   worktreePath?: string | null;
+  /** Runtime cwd override for children sharing their parent's execution directory. */
+  executionCwd?: string | null;
   /** Branch checked out in `worktreePath`, such as `lancer/<session-id>`. */
   worktreeBranch?: string | null;
   /** Branch the workspace was on when the worktree was created. Empty when detached. */
   worktreeBaseBranch?: string | null;
   /** Commit the session branch was created from. */
   worktreeBaseSha?: string | null;
+  worktreeCompletedSha?: string | null;
+  /** JSON-encoded initialization-command failure details for the session prompt. */
+  worktreeInitFailure?: string | null;
+  orchestrationParentWorkspaceId?: string | null;
+  orchestrationParentSessionId?: string | null;
+  orchestrationIsolation?: "worktree" | "shared" | null;
 }
 
 /** Compatibility name for lane runtime metadata. */

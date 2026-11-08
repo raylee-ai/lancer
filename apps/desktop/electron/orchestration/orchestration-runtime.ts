@@ -5,6 +5,7 @@ import type {
   ExtensionFactory,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import type { OrchestrationWorktreeCompletion } from "../../contracts/desktop-state";
 
 export const createChildThreadToolName = "create_child_thread";
 export const createChildThreadAction = "pi_gui_create_child_thread";
@@ -14,10 +15,13 @@ export const readThreadToolName = "read_thread";
 export const readThreadAction = "pi_gui_read_thread";
 export const sendMessageToThreadToolName = "send_message_to_thread";
 export const sendMessageToThreadAction = "pi_gui_send_message_to_thread";
+export const mergeChildThreadToolName = "merge_child_thread";
+export const mergeChildThreadAction = "pi_gui_merge_child_thread";
 
 export interface CreateChildThreadToolDetails {
   readonly action: typeof createChildThreadAction;
   readonly prompt: string;
+  readonly isolation?: "worktree" | "shared";
   readonly childThreadId?: string;
   readonly childWorkspaceId?: string;
   readonly childSessionId?: string;
@@ -64,6 +68,7 @@ export interface ReadThreadToolDetails {
   readonly childThreadId?: string;
   readonly goal?: string;
   readonly messages?: readonly OrchestrationThreadTranscriptMessage[];
+  readonly completion?: OrchestrationWorktreeCompletion & { readonly patch: string };
   readonly error?: string;
 }
 
@@ -78,27 +83,45 @@ export interface SendMessageToThreadToolDetails {
   readonly error?: string;
 }
 
+export interface MergeChildThreadToolDetails {
+  readonly action: typeof mergeChildThreadAction;
+  readonly threadId: string;
+  readonly completedSha: string;
+  readonly conflicts?: readonly string[];
+  readonly applied?: boolean;
+  readonly error?: string;
+}
+
 export interface OrchestrationRuntimeBridge {
   readonly createChildThread: (
     ctx: ExtensionContext,
-    input: { readonly prompt: string; readonly toolCallId: string },
+    input: {
+      readonly prompt: string;
+      readonly toolCallId: string;
+      readonly isolation: "worktree" | "shared";
+    },
   ) => Promise<AgentToolResult<CreateChildThreadToolDetails>>;
   readonly listThreads: (ctx: ExtensionContext) => Promise<AgentToolResult<ListThreadsToolDetails>>;
   readonly readThread: (
     ctx: ExtensionContext,
-    threadId: string,
+    input: { readonly threadId: string; readonly commitSha?: string },
   ) => Promise<AgentToolResult<ReadThreadToolDetails>>;
   readonly sendMessageToThread: (
     ctx: ExtensionContext,
     input: { readonly threadId: string; readonly message: string },
   ) => Promise<AgentToolResult<SendMessageToThreadToolDetails>>;
+  readonly mergeChildThread: (
+    ctx: ExtensionContext,
+    input: { readonly threadId: string; readonly completedSha: string },
+  ) => Promise<AgentToolResult<MergeChildThreadToolDetails>>;
 }
 
 type OrchestrationToolDetails =
   | CreateChildThreadToolDetails
   | ListThreadsToolDetails
   | ReadThreadToolDetails
-  | SendMessageToThreadToolDetails;
+  | SendMessageToThreadToolDetails
+  | MergeChildThreadToolDetails;
 
 function createCreateChildThreadTool(
   bridge: OrchestrationRuntimeBridge,
@@ -107,11 +130,12 @@ function createCreateChildThreadTool(
     name: createChildThreadToolName,
     label: "Create child thread",
     description:
-      "Start a separate Lancer child thread for a delegated investigation or implementation task.",
+      "Start a child thread for delegated work. File-changing tasks use an isolated worktree by default; read-only research may use shared isolation.",
     promptSnippet: "Start a separate Lancer child thread for delegated work.",
     promptGuidelines: [
       "Use create_child_thread when the user asks you to spin up, delegate to, or run a separate child thread.",
       "Keep the child prompt self-contained: objective, relevant file paths, constraints and acceptance criteria. Never paste the full parent transcript. Child threads start without parent history; results are batched after siblings settle.",
+      "Use the default worktree isolation for tasks that may change files. Set isolation to shared only for read-only research.",
     ],
     parameters: {
       type: "object",
@@ -119,6 +143,12 @@ function createCreateChildThreadTool(
         prompt: {
           type: "string",
           description: "Concrete instructions for the child thread.",
+        },
+        isolation: {
+          type: "string",
+          enum: ["worktree", "shared"],
+          description:
+            "Execution isolation. Defaults to worktree; use shared only for read-only research.",
         },
       },
       required: ["prompt"],
@@ -128,7 +158,8 @@ function createCreateChildThreadTool(
       if (!prompt) {
         throw new Error("create_child_thread requires a non-empty prompt.");
       }
-      return bridge.createChildThread(ctx, { prompt, toolCallId });
+      const isolation = isolationFromParams(params);
+      return bridge.createChildThread(ctx, { prompt, toolCallId, isolation });
     },
   };
 }
@@ -174,6 +205,11 @@ function createReadThreadTool(
           type: "string",
           description: "Thread id, child thread id, or session id to read.",
         },
+        commit_sha: {
+          type: "string",
+          description:
+            "Optional full completion commit SHA from a child return to read its exact diff.",
+        },
       },
       required: ["thread_id"],
     },
@@ -189,7 +225,8 @@ function createReadThreadTool(
           },
         };
       }
-      return bridge.readThread(ctx, threadId);
+      const commitSha = commitShaFromParams(params);
+      return bridge.readThread(ctx, { threadId, ...(commitSha ? { commitSha } : {}) });
     },
   };
 }
@@ -241,6 +278,47 @@ function createSendMessageToThreadTool(
   };
 }
 
+function createMergeChildThreadTool(
+  bridge: OrchestrationRuntimeBridge,
+): ToolDefinition<any, OrchestrationToolDetails> {
+  return {
+    name: mergeChildThreadToolName,
+    label: "Merge child thread",
+    description:
+      "Apply a reviewed child-thread completion diff to the parent session directory and clean up its worktree.",
+    promptSnippet: "Merge a specific reviewed child completion into the parent session.",
+    promptGuidelines: [
+      "Read the child completion diff with read_thread and its full commit_sha before merging.",
+      "Pass that exact completed SHA to merge_child_thread. If conflicts are reported, tell the user and do not retry automatically.",
+    ],
+    parameters: {
+      type: "object",
+      properties: {
+        thread_id: {
+          type: "string",
+          description: "Child thread id returned by create_child_thread or list_threads.",
+        },
+        completed_sha: {
+          type: "string",
+          description: "Exact completion commit SHA returned by the child's branch evidence.",
+        },
+      },
+      required: ["thread_id", "completed_sha"],
+    },
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const threadId = threadIdFromParams(params);
+      const completedSha =
+        isRecord(params) && typeof params.completed_sha === "string"
+          ? params.completed_sha.trim()
+          : "";
+      if (!threadId || !completedSha) {
+        throw new Error("merge_child_thread requires thread_id and completed_sha.");
+      }
+      return bridge.mergeChildThread(ctx, { threadId, completedSha });
+    },
+  };
+}
+
 export function createOrchestrationRuntimeTools(
   bridge: OrchestrationRuntimeBridge,
 ): readonly ToolDefinition<any, OrchestrationToolDetails>[] {
@@ -249,6 +327,7 @@ export function createOrchestrationRuntimeTools(
     createListThreadsTool(bridge),
     createReadThreadTool(bridge),
     createSendMessageToThreadTool(bridge),
+    createMergeChildThreadTool(bridge),
   ];
 }
 
@@ -268,6 +347,18 @@ export function createChildThreadPromptFromParams(params: unknown): string | und
   }
   const prompt = typeof params.prompt === "string" ? params.prompt.trim() : "";
   return prompt || undefined;
+}
+
+function commitShaFromParams(params: unknown): string | undefined {
+  if (!isRecord(params)) return undefined;
+  const value = typeof params.commit_sha === "string" ? params.commit_sha.trim() : "";
+  return value || undefined;
+}
+
+function isolationFromParams(params: unknown): "worktree" | "shared" {
+  if (!isRecord(params) || params.isolation === undefined) return "worktree";
+  if (params.isolation === "worktree" || params.isolation === "shared") return params.isolation;
+  throw new Error('create_child_thread isolation must be "worktree" or "shared".');
 }
 
 export function createChildThreadPromptFromToolOutput(output: unknown): string | undefined {

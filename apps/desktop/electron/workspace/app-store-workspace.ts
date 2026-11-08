@@ -94,6 +94,7 @@ export interface WorkspaceOwner {
   addWorkspace(path: string): Promise<DesktopAppState>;
   renameWorkspace(workspaceId: string, displayName: string): Promise<DesktopAppState>;
   removeWorkspace(workspaceId: string): Promise<DesktopAppState>;
+  setWorktreeInitCommand(workspaceId: string, command: string): Promise<DesktopAppState>;
   selectWorkspace(workspaceId: string): Promise<DesktopAppState>;
   selectSession(target: WorkspaceSessionTarget): Promise<DesktopAppState>;
   renameSession(target: WorkspaceSessionTarget, title: string): Promise<DesktopAppState>;
@@ -101,7 +102,10 @@ export interface WorkspaceOwner {
   unarchiveSession(target: WorkspaceSessionTarget): Promise<DesktopAppState>;
   createSession(input: CreateSessionInput): Promise<DesktopAppState>;
   getSessionWorktreeDiff(target: WorkspaceSessionTarget): Promise<SessionWorktreeDiff>;
-  mergeSessionWorktree(target: WorkspaceSessionTarget): Promise<DesktopAppState>;
+  mergeSessionWorktree(
+    target: WorkspaceSessionTarget,
+    completedSha?: string,
+  ): Promise<DesktopAppState>;
   discardSessionWorktree(target: WorkspaceSessionTarget): Promise<DesktopAppState>;
   syncCurrentWorkspace(): Promise<DesktopAppState>;
   createWorktree(input: CreateWorktreeInput): Promise<DesktopAppState>;
@@ -119,6 +123,8 @@ export function createWorkspaceOwner(store: WorkspaceOwnerHost): WorkspaceOwner 
     addWorkspace: (path) => addWorkspace(store, path),
     renameWorkspace: (workspaceId, displayName) => renameWorkspace(store, workspaceId, displayName),
     removeWorkspace: (workspaceId) => removeWorkspace(store, workspaceId),
+    setWorktreeInitCommand: (workspaceId, command) =>
+      setWorktreeInitCommand(store, workspaceId, command),
     selectWorkspace: (workspaceId) => selectWorkspace(store, workspaceId),
     selectSession: (target) => selectSession(store, target),
     renameSession: (target, title) => renameSession(store, target, title),
@@ -126,7 +132,8 @@ export function createWorkspaceOwner(store: WorkspaceOwnerHost): WorkspaceOwner 
     unarchiveSession: (target) => unarchiveSession(store, target),
     createSession: (input) => createSession(store, input),
     getSessionWorktreeDiff: (target) => sessionWorktrees.readSessionWorktreeDiff(store, target),
-    mergeSessionWorktree: (target) => sessionWorktrees.mergeSessionWorktree(store, target),
+    mergeSessionWorktree: (target, completedSha) =>
+      sessionWorktrees.mergeSessionWorktree(store, target, completedSha),
     discardSessionWorktree: (target) => sessionWorktrees.discardSessionWorktree(store, target),
     syncCurrentWorkspace: () => syncCurrentWorkspace(store),
     createWorktree: (input) => worktree.createWorktree(store, input),
@@ -225,6 +232,26 @@ async function removeWorkspace(
     return store.refreshState(
       fallbackSelectionAfterWorkspaceRemoval(store.workspaceState(), workspaceId),
     );
+  });
+}
+
+async function setWorktreeInitCommand(
+  store: WorkspaceOwnerHost,
+  workspaceId: string,
+  command: string,
+): Promise<DesktopAppState> {
+  await store.initialize();
+  return store.withErrorHandling(async () => {
+    if (command.length > 4000) throw new Error("Worktree initialization command is too long.");
+    const workspace = await store.catalogStore.workspaces.getWorkspace(workspaceId);
+    if (!workspace) throw new Error(`Unknown workspace: ${workspaceId}`);
+    const normalized = command.trim();
+    const { worktreeInitCommand: _oldCommand, ...current } = workspace;
+    await store.catalogStore.workspaces.upsertWorkspace({
+      ...current,
+      ...(normalized ? { worktreeInitCommand: normalized } : {}),
+    });
+    return store.refreshState({ clearLastError: true });
   });
 }
 

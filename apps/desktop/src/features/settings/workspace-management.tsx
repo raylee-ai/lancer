@@ -1,4 +1,4 @@
-import type { Dispatch, SetStateAction } from "react";
+import { useState, type Dispatch, type SetStateAction } from "react";
 import type { DesktopAppState } from "../../../contracts/desktop-state";
 import type { PiDesktopApi } from "../../../contracts/ipc";
 import { t } from "../../../contracts/i18n";
@@ -39,9 +39,68 @@ export function WorkspaceManagement({
               wsMenu={wsMenu}
               api={api}
             />
+            <WorktreeInitCommand
+              workspaceId={workspace.id}
+              command={workspace.worktreeInitCommand ?? ""}
+              api={api}
+              setSnapshot={setSnapshot}
+            />
           </section>
         ))}
       </div>
     </SettingsGroup>
+  );
+}
+
+function WorktreeInitCommand({
+  workspaceId,
+  command,
+  api,
+  setSnapshot,
+}: {
+  readonly workspaceId: string;
+  readonly command: string;
+  readonly api: PiDesktopApi;
+  readonly setSnapshot: Dispatch<SetStateAction<DesktopAppState | null>>;
+}) {
+  const [value, setValue] = useState(command);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string>();
+  const [saved, setSaved] = useState(false);
+  return (
+    <div className="workspace-init-command">
+      <label>
+        <span>{t("threads.workspace.worktreeInitCommand")}</span>
+        <textarea
+          value={value}
+          maxLength={4000}
+          placeholder={t("threads.workspace.worktreeInitPlaceholder")}
+          onChange={(event) => {
+            setValue(event.target.value);
+            setSaved(false);
+          }}
+        />
+      </label>
+      <p>{t("threads.workspace.worktreeInitHint")}</p>
+      <button
+        type="button"
+        disabled={saving}
+        onClick={() => {
+          setSaving(true);
+          setError(undefined);
+          void updateSnapshot(setSnapshot, () =>
+            api.setWorkspaceWorktreeInitCommand(workspaceId, value),
+          )
+            .then(() => setSaved(true))
+            .catch((cause: unknown) =>
+              setError(cause instanceof Error ? cause.message : String(cause)),
+            )
+            .finally(() => setSaving(false));
+        }}
+      >
+        {saved ? t("threads.workspace.worktreeInitSaved") : t("threads.workspace.worktreeInitSave")}
+      </button>
+      {error ? <p role="alert">{error}</p> : null}
+    </div>
   );
 }

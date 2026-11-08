@@ -106,6 +106,7 @@ export const desktopIpc = {
   selectWorkspace: "pi-gui:select-workspace",
   renameWorkspace: "pi-gui:rename-workspace",
   removeWorkspace: "pi-gui:remove-workspace",
+  setWorkspaceWorktreeInitCommand: "pi-gui:set-worktree-init-command",
   reorderWorkspaces: "pi-gui:reorder-workspaces",
   openWorkspaceInFinder: "pi-gui:open-workspace-in-finder",
   createWorktree: "pi-gui:create-worktree",
@@ -677,6 +678,7 @@ export interface PiDesktopApi {
   selectWorkspace(workspaceId: string): Promise<DesktopAppState>;
   renameWorkspace(workspaceId: string, displayName: string): Promise<DesktopAppState>;
   removeWorkspace(workspaceId: string): Promise<DesktopAppState>;
+  setWorkspaceWorktreeInitCommand(workspaceId: string, command: string): Promise<DesktopAppState>;
   reorderWorkspaces(workspaceOrder: readonly string[]): Promise<DesktopAppState>;
   reorderPinnedSessions(pinnedSessionOrder: readonly string[]): Promise<DesktopAppState>;
   openWorkspaceInFinder(workspaceId: string): Promise<void>;
@@ -693,7 +695,10 @@ export interface PiDesktopApi {
   setSessionPinned(target: WorkspaceSessionTarget, pinned: boolean): Promise<DesktopAppState>;
   createSession(input: CreateSessionInput): Promise<DesktopAppState>;
   getSessionWorktreeDiff(target: WorkspaceSessionTarget): Promise<SessionWorktreeDiff>;
-  mergeSessionWorktree(target: WorkspaceSessionTarget): Promise<DesktopAppState>;
+  mergeSessionWorktree(
+    target: WorkspaceSessionTarget,
+    completedSha?: string,
+  ): Promise<DesktopAppState>;
   discardSessionWorktree(target: WorkspaceSessionTarget): Promise<DesktopAppState>;
   startThread(input: StartThreadInput): Promise<DesktopAppState>;
   forkThread(input: ForkThreadInput): Promise<DesktopAppState>;

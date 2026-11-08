@@ -6,7 +6,6 @@ import {
 } from "../orchestration/branch-return-batch";
 import { hasPendingChildCreation } from "../orchestration/app-store-orchestration";
 import { moduleZones } from "../../contracts/lancer-modules";
-import { branchReturnEvidence } from "../orchestration/branch-return";
 import { LancerAssistantStore } from "./lancer-assistant-store";
 import { randomUUID } from "node:crypto";
 import { decodeLancerAction } from "../../contracts/lancer-assistants";
@@ -491,6 +490,7 @@ export class DesktopAppStore {
     });
 
     this.orchestrationOwner = createOrchestrationOwner({
+      catalogStore: this.catalogStore,
       assertRunAllowed: (ref) =>
         assertTaskTokenBudget(this.state.orchestrationChildren, ref, (target) =>
           this.sessionState.sessionUsageBySession.get(sessionKey(target)),
@@ -920,6 +920,10 @@ export class DesktopAppStore {
     return this.workspaceOwner.removeWorkspace(workspaceId);
   }
 
+  async setWorktreeInitCommand(workspaceId: string, command: string): Promise<DesktopAppState> {
+    return this.workspaceOwner.setWorktreeInitCommand(workspaceId, command);
+  }
+
   async reorderWorkspaces(order: readonly string[]): Promise<DesktopAppState> {
     await this.initialize();
     const primaryIds = new Set(
@@ -1277,8 +1281,11 @@ export class DesktopAppStore {
     return this.workspaceOwner.getSessionWorktreeDiff(target);
   }
 
-  mergeSessionWorktree(target: WorkspaceSessionTarget): Promise<DesktopAppState> {
-    return this.workspaceOwner.mergeSessionWorktree(target);
+  mergeSessionWorktree(
+    target: WorkspaceSessionTarget,
+    completedSha?: string,
+  ): Promise<DesktopAppState> {
+    return this.workspaceOwner.mergeSessionWorktree(target, completedSha);
   }
 
   discardSessionWorktree(target: WorkspaceSessionTarget): Promise<DesktopAppState> {
@@ -1336,6 +1343,7 @@ export class DesktopAppStore {
       await this.createChildThreadToolResult(action.target, {
         prompt: action.prompt,
         toolCallId: `ui:${randomUUID()}`,
+        isolation: "worktree",
       });
       this.scheduleOrchestrationSupervision();
       return this.emit();
@@ -1381,7 +1389,11 @@ export class DesktopAppStore {
 
   async createChildThreadToolResult(
     parentRef: SessionRef,
-    input: { readonly prompt: string; readonly toolCallId: string },
+    input: {
+      readonly prompt: string;
+      readonly toolCallId: string;
+      readonly isolation?: "worktree" | "shared";
+    },
   ) {
     await this.initialize();
     try {
@@ -1395,9 +1407,9 @@ export class DesktopAppStore {
     return this.orchestrationOwner.listThreadsToolResult(parentRef);
   }
 
-  async readThreadToolResult(parentRef: SessionRef, threadId: string) {
+  async readThreadToolResult(parentRef: SessionRef, threadId: string, commitSha?: string) {
     await this.initialize();
-    return this.orchestrationOwner.readThreadToolResult(parentRef, threadId);
+    return this.orchestrationOwner.readThreadToolResult(parentRef, threadId, commitSha);
   }
 
   async sendMessageToThreadToolResult(
@@ -1406,6 +1418,14 @@ export class DesktopAppStore {
   ) {
     await this.initialize();
     return this.orchestrationOwner.sendMessageToThreadToolResult(parentRef, input);
+  }
+
+  async mergeChildThreadToolResult(
+    parentRef: SessionRef,
+    input: { readonly threadId: string; readonly completedSha: string },
+  ) {
+    await this.initialize();
+    return this.orchestrationOwner.mergeChildThreadToolResult(parentRef, input);
   }
 
   async setChildSupervisionLoop(input: SetChildSupervisionLoopInput): Promise<DesktopAppState> {
@@ -2404,9 +2424,10 @@ export class DesktopAppStore {
         workspaceId: this.state.selectedWorkspaceId,
         sessionId: this.state.selectedSessionId,
       };
-      const [workspacesSnapshot, sessionsSnapshot] = await Promise.all([
+      const [workspacesSnapshot, sessionsSnapshot, workspaceSettings] = await Promise.all([
         this.driver.listWorkspaces(),
         this.driver.listSessions(),
+        this.catalogStore.workspaces.listWorkspaces(),
       ]);
       const worktreeEntries = options.refreshWorktrees
         ? await this.workspaceOwner.syncAndListWorktrees(workspacesSnapshot.workspaces)
@@ -2434,6 +2455,13 @@ export class DesktopAppStore {
         await this.ensureComposerAttachmentsLoaded(sessionRef);
       }
 
+      const workspaceInitCommands = new Map(
+        workspaceSettings.workspaces.flatMap((workspace) =>
+          workspace.worktreeInitCommand
+            ? [[workspace.workspaceId, workspace.worktreeInitCommand] as const]
+            : [],
+        ),
+      );
       const workspaces = buildWorkspaceRecords(
         workspacesSnapshot.workspaces,
         worktreeEntries,
@@ -2444,7 +2472,10 @@ export class DesktopAppStore {
         this.sessionState.lastViewedAtBySession,
         this.sessionState.lastInteractedAtBySession,
         this.sessionState.pinnedAtBySession,
-      );
+      ).map((workspace) => {
+        const worktreeInitCommand = workspaceInitCommands.get(workspace.id);
+        return worktreeInitCommand ? { ...workspace, worktreeInitCommand } : workspace;
+      });
       const worktreesByWorkspace = buildWorktreeRecords(
         workspacesSnapshot.workspaces,
         worktreeEntries,
@@ -3531,10 +3562,12 @@ export class DesktopAppStore {
       ) {
         this.state = {
           ...this.state,
-          orchestrationChildren: this.state.orchestrationChildren.map((child) => {
-            const evidence = branchReturnEvidence(child, event);
-            return evidence ? { ...child, evidence: [...child.evidence, evidence] } : child;
-          }),
+          orchestrationChildren: await Promise.all(
+            this.state.orchestrationChildren.map(async (child) => {
+              const evidence = await this.orchestrationOwner.branchReturnEvidence(child, event);
+              return evidence ? { ...child, evidence: [...child.evidence, evidence] } : child;
+            }),
+          ),
         };
         await this.persistUiState();
         setTimeout(() => this.dispatchBranchReturns(), 0);

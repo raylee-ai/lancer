@@ -47,6 +47,9 @@ export function buildWorkspaceRecords(
       id: workspace.workspaceId,
       name: workspace.displayName,
       path: workspace.path,
+      ...(workspace.worktreeInitCommand
+        ? { worktreeInitCommand: workspace.worktreeInitCommand }
+        : {}),
       lastOpenedAt: workspace.lastOpenedAt,
       kind: rootWorkspaceId ? "worktree" : "primary",
       ...(rootWorkspaceId
@@ -200,6 +203,8 @@ function buildSessionRecord(
             path: session.worktreePath,
             branch: session.worktreeBranch,
             baseBranch: session.worktreeBaseBranch ?? "",
+            ...(session.orchestrationParentSessionId ? { childThread: true } : {}),
+            ...(session.worktreeCompletedSha ? { completedSha: session.worktreeCompletedSha } : {}),
           },
         }
       : {}),

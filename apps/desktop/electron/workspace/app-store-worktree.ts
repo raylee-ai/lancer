@@ -13,7 +13,11 @@ import type {
 import type { CreateWorktreeOptions } from "../platform/worktrees/worktree-manager";
 import type { WorkspaceOwnerHost } from "./app-store-workspace";
 import { NEW_THREAD_PLACEHOLDER_TITLE } from "../conversation/thread-title-constants";
-import { createSessionWithWorktree } from "./session-worktree-sessions";
+import {
+  createSessionWithWorktree,
+  formatWorktreeInitializationFailure,
+  parseWorktreeInitializationFailure,
+} from "./session-worktree-sessions";
 
 /* ── Public methods ─────────────────────────────────────── */
 
@@ -178,8 +182,13 @@ export async function startThread(
     // Fire message in background — assistantDelta events flow through
     // handleSessionEvent → emit() and update React while on the thread view
     if (prompt || attachments.length > 0) {
+      const metadata = await store.catalogStore.sessions.getControlMetadata(session.ref);
+      const initFailure = parseWorktreeInitializationFailure(metadata?.worktreeInitFailure);
+      const startupNotice = initFailure
+        ? `Worktree initialization failed:\n${formatWorktreeInitializationFailure(initFailure)}\n\n`
+        : "";
       void store
-        .sendMessageToSession(session.ref, prompt, attachments, {
+        .sendMessageToSession(session.ref, `${startupNotice}${prompt}`, attachments, {
           rollbackOptimisticMessageOnError: false,
         })
         .catch((error) => {

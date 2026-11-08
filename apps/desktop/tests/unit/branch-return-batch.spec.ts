@@ -79,6 +79,36 @@ test("progress events never create a return or model wakeup", () => {
     }),
   ).toBeUndefined();
 });
+test("worktree returns bind structured evidence and review instructions to a completion", () => {
+  const c = child("a");
+  const completion = {
+    isolation: "worktree" as const,
+    branch: "lancer/a",
+    baseSha: "a".repeat(40),
+    completedSha: "b".repeat(40),
+    files: ["src/change.ts"],
+    stat: "src/change.ts | 1 +",
+    patchTruncated: false,
+  };
+  const evidence = branchReturnEvidence(
+    c,
+    {
+      type: "runCompleted",
+      sessionRef: { workspaceId: "w", sessionId: "a" },
+      runId: "run-1",
+      timestamp: c.updatedAt,
+      outcome: "completed",
+    },
+    completion,
+  );
+  expect(evidence?.completion).toEqual(completion);
+  expect(evidence?.detail).toContain(completion.baseSha);
+  expect(evidence?.detail).toContain(completion.completedSha);
+  expect(evidence?.detail).toContain("src/change.ts");
+  expect(evidence?.detail).toContain("read_thread");
+  expect(evidence?.detail).toContain("merge_child_thread");
+  expect(evidence?.detail).toContain("不要因为这条回传自动重试或创建额外任务");
+});
 test("large reports stay on disk while summary and deliverables stay bounded", async () => {
   const root = await mkdtemp(join(tmpdir(), "lancer-return-batch-"));
   const result = "SAVED_REPLY " + "long log ".repeat(10000) + "\n[交付](result.md)";

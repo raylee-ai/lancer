@@ -14,6 +14,7 @@ export interface WorkspaceCatalogEntry {
   lastOpenedAt: string;
   sortOrder: number;
   pinned?: boolean;
+  worktreeInitCommand?: string;
 }
 
 export type WorktreeId = string;

@@ -220,13 +220,21 @@ function createStoreBackedOrchestrationRuntimeBridge(): OrchestrationRuntimeBrid
       await store.initialize();
       return store.listThreadsToolResult(sessionRefFromExtensionContext(ctx));
     },
-    readThread: async (ctx, threadId) => {
+    readThread: async (ctx, input) => {
       await store.initialize();
-      return store.readThreadToolResult(sessionRefFromExtensionContext(ctx), threadId);
+      return store.readThreadToolResult(
+        sessionRefFromExtensionContext(ctx),
+        input.threadId,
+        input.commitSha,
+      );
     },
     sendMessageToThread: async (ctx, input) => {
       await store.initialize();
       return store.sendMessageToThreadToolResult(sessionRefFromExtensionContext(ctx), input);
+    },
+    mergeChildThread: async (ctx, input) => {
+      await store.initialize();
+      return store.mergeChildThreadToolResult(sessionRefFromExtensionContext(ctx), input);
     },
   };
 }

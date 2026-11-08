@@ -40,7 +40,7 @@ Linux 使用 `$XDG_CONFIG_HOME/Lancer`（未设置时 `~/.config/Lancer`）。�
 ./scripts/lancer-ctl new --cwd /path/to/repo --worktree --name '隔离实验' '在独立分支上修改'
 ```
 
-所有命令都支持 `--user-data-dir /path/to/profile`。可把仓库 `scripts/` 加入 PATH；不要仅复制 shell 入口而遗漏同目录的 `lancer-ctl.mjs`。`new` 也支持 `--file`，正文与位置参数二选一。以 `-` 开头的正文可放在 `--` 后。`--worktree` 在 `--cwd` 是 Git 仓库时为新会话创建 `lancer/<session-id>` 分支和独立 worktree，Agent 的读写和 bash 在该检出中执行；非 Git 目录忽略该选项。设计见 [会话工作树](session-worktrees.md)。
+所有命令都支持 `--user-data-dir /path/to/profile`。可把仓库 `scripts/` 加入 PATH；不要仅复制 shell 入口而遗漏同目录的 `lancer-ctl.mjs`。`new` 也支持 `--file`，正文与位置参数二选一。以 `-` 开头的正文可放在 `--` 后。`--worktree` 在 `--cwd` 是 Git 仓库时为新会话创建 `lancer/<session-id>` 分支和独立 worktree，Agent 的读写和 bash 在该检出中执行；若该 Lancer 工作区配置了初始化命令，也会在新 worktree 中运行。初始化命令只来自 Lancer 设置，不读取仓库脚本；失败会记录诊断但不会阻止会话启动。非 Git 目录忽略 `--worktree`。设计见 [会话工作树](session-worktrees.md)。
 
 会话选择依次匹配完整 `workspaceId:sessionId`、完整 session id、忽略大小写的标题片段。多个命中会报 `AMBIGUOUS_SESSION` 并列出完整标识，绝不猜测目标。完整标题也仍按片段规则检查歧义。列表包含当前应用 catalog 中所有工作区会话（含已归档），不扫描未注册工作区。
 

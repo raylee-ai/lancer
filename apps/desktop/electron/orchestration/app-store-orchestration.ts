@@ -5,6 +5,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { sessionKey } from "@lancer/session-driver";
+import type { JsonCatalogStore } from "@lancer/catalogs/node";
 import type {
   CreateSessionOptions,
   SessionConfig,
@@ -22,6 +23,7 @@ import type {
   OrchestrationChildTranscriptMessage,
   OrchestrationSupervisionLoop,
   OrchestrationSupervisionStatus,
+  OrchestrationWorktreeCompletion,
   SendChildThreadFollowUpInput,
   SetChildSupervisionLoopInput,
   TimelineToolCall,
@@ -30,12 +32,26 @@ import type {
 import { latestSessionActivityAt, previewFromTranscript } from "../application/app-store-utils";
 import type { RefreshStateOptions } from "../application/refresh-state-options";
 import {
+  createChildSessionWithIsolation,
+  formatWorktreeInitializationFailure,
+  parseWorktreeInitializationFailure,
+  mergeChildSessionWorktree,
+} from "../workspace/session-worktree-sessions";
+import {
+  inspectGitRepository,
+  commitSessionWorktree,
+  readSessionWorktreeCompletion,
+  type SessionWorktreeBinding,
+} from "../platform/worktrees/session-worktree";
+import { branchReturnEvidence } from "./branch-return";
+import {
   createChildThreadAction,
   createChildThreadPromptFromToolOutput,
   createChildThreadToolName,
   listThreadsAction,
   listThreadsRequestedFromToolOutput,
   listThreadsToolName,
+  mergeChildThreadAction,
   readThreadAction,
   readThreadIdFromToolOutput,
   readThreadToolName,
@@ -46,6 +62,7 @@ import {
 import type {
   CreateChildThreadToolDetails,
   ListThreadsToolDetails,
+  MergeChildThreadToolDetails,
   OrchestrationThreadListEntry,
   ReadThreadToolDetails,
   SendMessageToThreadToolDetails,
@@ -73,8 +90,9 @@ interface OrchestrationStateView {
 type OrchestrationDriver = Pick<PiSdkDriver, "cancelCurrentRun" | "createSession">;
 
 interface OrchestrationOwnerHost {
+  readonly catalogStore: JsonCatalogStore;
   assertRunAllowed?(sessionRef: SessionRef): void;
-  readonly driver: OrchestrationDriver;
+  readonly driver: OrchestrationDriver & Pick<PiSdkDriver, "retargetExecutionCwd">;
   initialize(): Promise<void>;
   orchestrationState(): OrchestrationStateView;
   replaceOrchestrationChildren(children: readonly OrchestrationChildThread[]): void;
@@ -138,17 +156,30 @@ export interface OrchestrationOwner {
   hasOrchestrationParentSession(sessionRef: SessionRef): boolean;
   createChildThreadToolResult(
     parentRef: SessionRef,
-    input: { readonly prompt: string; readonly toolCallId: string },
+    input: {
+      readonly prompt: string;
+      readonly toolCallId: string;
+      readonly isolation?: "worktree" | "shared";
+    },
   ): Promise<AgentToolResult<CreateChildThreadToolDetails>>;
   listThreadsToolResult(parentRef: SessionRef): AgentToolResult<ListThreadsToolDetails>;
   readThreadToolResult(
     parentRef: SessionRef,
     threadId: string,
+    commitSha?: string,
   ): Promise<AgentToolResult<ReadThreadToolDetails>>;
   sendMessageToThreadToolResult(
     parentRef: SessionRef,
     input: { readonly threadId: string; readonly message: string },
   ): Promise<AgentToolResult<SendMessageToThreadToolDetails>>;
+  mergeChildThreadToolResult(
+    parentRef: SessionRef,
+    input: { readonly threadId: string; readonly completedSha: string },
+  ): Promise<AgentToolResult<MergeChildThreadToolDetails>>;
+  branchReturnEvidence(
+    child: OrchestrationChildThread,
+    event: SessionDriverEvent,
+  ): Promise<OrchestrationEvidenceRecord | undefined>;
 }
 
 export function createOrchestrationOwner(store: OrchestrationOwnerHost): OrchestrationOwner {
@@ -171,16 +202,76 @@ export function createOrchestrationOwner(store: OrchestrationOwnerHost): Orchest
     createChildThreadToolResult: (parentRef, input) =>
       createChildThreadToolResult(store, parentRef, input),
     listThreadsToolResult: (parentRef) => listThreadsToolResult(store, parentRef),
-    readThreadToolResult: (parentRef, threadId) => readThreadToolResult(store, parentRef, threadId),
+    readThreadToolResult: (parentRef, threadId, commitSha) =>
+      readThreadToolResult(store, parentRef, threadId, commitSha),
     sendMessageToThreadToolResult: (parentRef, input) =>
       sendMessageToThreadToolResult(store, parentRef, input),
+    mergeChildThreadToolResult: (parentRef, input) =>
+      mergeChildThreadToolResult(store, parentRef, input),
+    branchReturnEvidence: (child, event) => createBranchReturnEvidence(store, child, event),
   };
+}
+
+async function createBranchReturnEvidence(
+  store: OrchestrationOwnerHost,
+  child: OrchestrationChildThread,
+  event: SessionDriverEvent,
+): Promise<OrchestrationEvidenceRecord | undefined> {
+  if (!branchReturnEvidence(child, event)) return undefined;
+  const ref = { workspaceId: child.childWorkspaceId, sessionId: child.childSessionId };
+  const metadata = await store.catalogStore.sessions.getControlMetadata(ref);
+  const initFailure = parseWorktreeInitializationFailure(metadata?.worktreeInitFailure);
+  if (metadata?.orchestrationIsolation !== "worktree" || !metadata.worktreePath) {
+    return branchReturnEvidence(child, event, { isolation: "shared" }, initFailure);
+  }
+  try {
+    const repo = await inspectGitRepository(metadata.worktreePath);
+    if (!repo) throw new Error("The child session worktree is no longer a Git checkout.");
+    const binding: SessionWorktreeBinding = {
+      path: metadata.worktreePath,
+      branch: metadata.worktreeBranch ?? "",
+      baseBranch: metadata.worktreeBaseBranch ?? "",
+      baseSha: metadata.worktreeBaseSha ?? "",
+      repoRoot: repo.repoRoot,
+      commonDir: repo.commonDir,
+    };
+    const completedSha = await commitSessionWorktree(binding);
+    const diff = await readSessionWorktreeCompletion(binding, completedSha);
+    await store.catalogStore.sessions.updateControlMetadata(ref, {
+      worktreeCompletedSha: completedSha,
+    });
+    await store.refreshState({
+      clearLastError: true,
+      emitState: false,
+      persistState: false,
+      publishSelectedTranscript: false,
+    });
+    const completion: OrchestrationWorktreeCompletion = {
+      isolation: "worktree",
+      branch: diff.branch,
+      baseSha: diff.baseSha,
+      completedSha: diff.completedSha,
+      files: diff.files,
+      stat: diff.stat,
+      patchTruncated: diff.truncated,
+    };
+    return branchReturnEvidence(child, event, completion, initFailure);
+  } catch (error) {
+    return branchReturnEvidence(
+      child,
+      event,
+      undefined,
+      initFailure,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 }
 
 interface SpawnChildThreadInput {
   readonly parentWorkspaceId: string;
   readonly parentSessionId: string;
   readonly prompt: string;
+  readonly isolation?: "worktree" | "shared";
   readonly sourceToolCallId?: string;
 }
 
@@ -195,6 +286,7 @@ async function createChildThreadRecord(
 ): Promise<CreatedChildThreadResult> {
   await store.initialize();
   const prompt = input.prompt.trim();
+  const isolation = input.isolation ?? "worktree";
   if (!prompt) {
     throw new Error("Child thread prompt cannot be empty.");
   }
@@ -246,22 +338,39 @@ async function createChildThreadRecord(
       sessionId: input.parentSessionId,
     });
     const createOptions = await store.buildCreateSessionOptions(input.parentWorkspaceId);
-    const session = await store.driver.createSession(workspace, {
-      ...createOptions,
-      ...(parent.config?.provider && parent.config.modelId
-        ? { initialModel: { provider: parent.config.provider, modelId: parent.config.modelId } }
-        : {}),
-      ...(parent.config?.thinkingLevel
-        ? { initialThinkingLevel: parent.config.thinkingLevel }
-        : {}),
-      title: titleFromPrompt(prompt),
-    });
+    const session = await createChildSessionWithIsolation(
+      store,
+      workspace,
+      {
+        workspaceId: input.parentWorkspaceId,
+        sessionId: input.parentSessionId,
+      },
+      {
+        ...createOptions,
+        ...(parent.config?.provider && parent.config.modelId
+          ? { initialModel: { provider: parent.config.provider, modelId: parent.config.modelId } }
+          : {}),
+        ...(parent.config?.thinkingLevel
+          ? { initialThinkingLevel: parent.config.thinkingLevel }
+          : {}),
+        title: titleFromPrompt(prompt),
+      },
+      isolation,
+    );
     const childRef = session.ref;
     store.seedSession(session);
     await store.ensureSessionSubscription(childRef);
 
     const now = new Date().toISOString();
-    const git = await workspaceGitRef(input.parentWorkspaceId, workspace.path);
+    const childMetadata = await store.catalogStore.sessions.getControlMetadata(childRef);
+    const initFailure = parseWorktreeInitializationFailure(childMetadata?.worktreeInitFailure);
+    const parentMetadata = await store.catalogStore.sessions.getControlMetadata({
+      workspaceId: input.parentWorkspaceId,
+      sessionId: input.parentSessionId,
+    });
+    const parentExecutionPath =
+      parentMetadata?.executionCwd ?? parentMetadata?.worktreePath ?? workspace.path;
+    const git = await workspaceGitRef(input.parentWorkspaceId, parentExecutionPath);
     const status = toOrchestrationStatus(session.status, childRef, store);
     const child: OrchestrationChildThread = {
       id: randomUUID(),
@@ -270,6 +379,7 @@ async function createChildThreadRecord(
       parentSessionId: input.parentSessionId,
       childWorkspaceId: childRef.workspaceId,
       childSessionId: childRef.sessionId,
+      isolation: childMetadata?.orchestrationIsolation ?? "shared",
       title: session.title || titleFromPrompt(prompt),
       goal: prompt,
       status,
@@ -283,7 +393,13 @@ async function createChildThreadRecord(
           source: "orchestrator-accepted",
           status: "accepted",
           title: "Child thread created",
-          detail: prompt,
+          detail: [
+            `Isolation: ${childMetadata?.orchestrationIsolation ?? isolation}.`,
+            prompt,
+            initFailure ? formatWorktreeInitializationFailure(initFailure) : "",
+          ]
+            .filter(Boolean)
+            .join("\n\n"),
           parentSessionId: input.parentSessionId,
           childSessionId: childRef.sessionId,
           ...(git ? { git } : {}),
@@ -320,7 +436,14 @@ async function createChildThreadRecord(
 
     let deliveryStatus: CreatedChildThreadResult["deliveryStatus"];
     try {
-      deliveryStatus = await launchInitialChildPrompt(store, childRef, delegatedTaskPrompt(prompt));
+      const initNotice = initFailure
+        ? `\n\nWorktree initialization failed:\n${formatWorktreeInitializationFailure(initFailure)}\n\n`
+        : "";
+      deliveryStatus = await launchInitialChildPrompt(
+        store,
+        childRef,
+        `${initNotice}${delegatedTaskPrompt(prompt)}`,
+      );
     } catch (error) {
       markInitialPromptDeliveryFailed(store, child.id, error);
       await store.persistUiState();
@@ -557,17 +680,23 @@ async function cancelChildRunsForParent(
 async function createChildThreadToolResult(
   store: OrchestrationOwnerHost,
   parentRef: SessionRef,
-  input: { readonly prompt: string; readonly toolCallId: string },
+  input: {
+    readonly prompt: string;
+    readonly toolCallId: string;
+    readonly isolation?: "worktree" | "shared";
+  },
 ): Promise<AgentToolResult<CreateChildThreadToolDetails>> {
   const { child, deliveryStatus } = await createChildThreadRecord(store, {
     parentWorkspaceId: parentRef.workspaceId,
     parentSessionId: parentRef.sessionId,
     prompt: input.prompt,
+    isolation: input.isolation,
     sourceToolCallId: input.toolCallId,
   });
   const details: CreateChildThreadToolDetails = {
     action: createChildThreadAction,
     prompt: input.prompt.trim(),
+    isolation: child.isolation,
     childThreadId: child.id,
     childWorkspaceId: child.childWorkspaceId,
     childSessionId: child.childSessionId,
@@ -672,6 +801,7 @@ async function readThreadToolResult(
   store: OrchestrationOwnerHost,
   parentRef: SessionRef,
   threadId: string,
+  commitSha?: string,
 ): Promise<AgentToolResult<ReadThreadToolDetails>> {
   const target = resolveThreadTarget(store, parentRef, threadId);
   if (!target) {
@@ -684,6 +814,53 @@ async function readThreadToolResult(
   const messages = toThreadReadMessages(transcript);
   const title = session?.title ?? target.child?.title ?? target.sessionRef.sessionId;
   const status = target.child?.status ?? session?.status ?? "unknown";
+  let completion: (OrchestrationWorktreeCompletion & { readonly patch: string }) | undefined;
+  if (commitSha) {
+    const recorded = target.child?.evidence.some(
+      (record) => record.completion?.completedSha === commitSha,
+    );
+    if (!target.child || !recorded) {
+      return readThreadErrorResult(
+        threadId,
+        "The requested completion SHA is not recorded for this child thread.",
+      );
+    }
+    const metadata = await store.catalogStore.sessions.getControlMetadata(target.sessionRef);
+    if (
+      metadata?.orchestrationIsolation !== "worktree" ||
+      !metadata.worktreePath ||
+      !metadata.worktreeBranch ||
+      !metadata.worktreeBaseSha
+    ) {
+      return readThreadErrorResult(
+        threadId,
+        "This child thread no longer has a retained worktree.",
+      );
+    }
+    const repo = await inspectGitRepository(metadata.worktreePath);
+    if (!repo) return readThreadErrorResult(threadId, "The child worktree is not a Git checkout.");
+    const diff = await readSessionWorktreeCompletion(
+      {
+        path: metadata.worktreePath,
+        branch: metadata.worktreeBranch,
+        baseBranch: metadata.worktreeBaseBranch ?? "",
+        baseSha: metadata.worktreeBaseSha,
+        repoRoot: repo.repoRoot,
+        commonDir: repo.commonDir,
+      },
+      commitSha,
+    );
+    completion = {
+      isolation: "worktree",
+      branch: diff.branch,
+      baseSha: diff.baseSha,
+      completedSha: diff.completedSha,
+      files: diff.files,
+      stat: diff.stat,
+      patchTruncated: diff.truncated,
+      patch: diff.patch,
+    };
+  }
   const details: ReadThreadToolDetails = {
     action: readThreadAction,
     threadId,
@@ -698,11 +875,29 @@ async function readThreadToolResult(
         }
       : {}),
     messages,
+    ...(completion ? { completion } : {}),
   };
 
   return {
     content: [
-      { type: "text", text: formatThreadReadResult({ ...details, title, status, messages }) },
+      {
+        type: "text",
+        text: [
+          formatThreadReadResult({ ...details, title, status, messages }),
+          completion
+            ? [
+                `Diff for ${completion.completedSha} (${completion.baseSha}..${completion.completedSha})`,
+                completion.stat,
+                completion.patch,
+                completion.patchTruncated ? "[Diff truncated at 1 MiB]" : "",
+              ]
+                .filter(Boolean)
+                .join("\n\n")
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
+      },
     ],
     details,
   };
@@ -753,6 +948,107 @@ async function sendMessageToThreadToolResult(
   return {
     content: [{ type: "text", text: formatSendMessageToThreadResult(details) }],
     details,
+  };
+}
+
+async function mergeChildThreadToolResult(
+  store: OrchestrationOwnerHost,
+  parentRef: SessionRef,
+  input: { readonly threadId: string; readonly completedSha: string },
+): Promise<AgentToolResult<MergeChildThreadToolDetails>> {
+  const target = resolveThreadTarget(store, parentRef, input.threadId);
+  if (!target?.child) {
+    return mergeChildThreadErrorResult(
+      input.threadId,
+      input.completedSha,
+      `Unknown child thread: ${input.threadId}`,
+    );
+  }
+  if (!/^[0-9a-f]{40,64}$/i.test(input.completedSha)) {
+    return mergeChildThreadErrorResult(
+      input.threadId,
+      input.completedSha,
+      "A full completion commit id is required.",
+    );
+  }
+  const recorded = target.child.evidence.some(
+    (record) =>
+      record.completion?.isolation === "worktree" &&
+      record.completion.completedSha === input.completedSha,
+  );
+  if (!recorded) {
+    return mergeChildThreadErrorResult(
+      input.threadId,
+      input.completedSha,
+      "Read and verify a completion SHA recorded for this child before merging.",
+    );
+  }
+  if (store.sessionFromState(target.sessionRef)?.status === "running") {
+    return mergeChildThreadErrorResult(
+      input.threadId,
+      input.completedSha,
+      "The child thread is still running; stop it before merging.",
+    );
+  }
+
+  const result = await mergeChildSessionWorktree(
+    store,
+    {
+      workspaceId: target.sessionRef.workspaceId,
+      sessionId: target.sessionRef.sessionId,
+    },
+    input.completedSha,
+  );
+  if (!result.applied) {
+    const details: MergeChildThreadToolDetails = {
+      action: mergeChildThreadAction,
+      threadId: input.threadId,
+      completedSha: input.completedSha,
+      conflicts: result.conflicts,
+      applied: false,
+    };
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Could not merge the child diff. The parent directory was left unchanged. Conflicts: ${result.conflicts.join(", ") || "unknown files"}. Tell the user and do not retry automatically.`,
+        },
+      ],
+      details,
+    };
+  }
+  await store.refreshState({ clearLastError: true });
+  const details: MergeChildThreadToolDetails = {
+    action: mergeChildThreadAction,
+    threadId: input.threadId,
+    completedSha: input.completedSha,
+    conflicts: [],
+    applied: true,
+  };
+  return {
+    content: [
+      {
+        type: "text",
+        text: `Applied child completion ${input.completedSha} to the parent session directory and cleaned up its worktree and branch.`,
+      },
+    ],
+    details,
+  };
+}
+
+function mergeChildThreadErrorResult(
+  threadId: string,
+  completedSha: string,
+  error: string,
+): AgentToolResult<MergeChildThreadToolDetails> {
+  return {
+    content: [{ type: "text", text: error }],
+    details: {
+      action: mergeChildThreadAction,
+      threadId,
+      completedSha,
+      error,
+    },
   };
 }
 
@@ -1722,6 +2018,7 @@ function formatCreateChildThreadResult(result: CreateChildThreadToolDetails): st
     `childThreadId: ${result.childThreadId ?? ""}\n` +
     `childWorkspaceId: ${result.childWorkspaceId ?? ""}\n` +
     `childSessionId: ${result.childSessionId ?? ""}` +
+    `\nisolation: ${result.isolation ?? "shared"}` +
     (result.deliveryStatus ? `\ninitialPrompt: ${result.deliveryStatus}` : "")
   );
 }

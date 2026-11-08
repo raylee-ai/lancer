@@ -1,7 +1,9 @@
 import { createServer } from "node:http";
+import { execFile } from "node:child_process";
 import type { AddressInfo } from "node:net";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { expect, test } from "@playwright/test";
 import type { SessionRef } from "@lancer/session-driver";
 import {
@@ -13,6 +15,19 @@ import {
   runOrchestrationRuntimeTool,
   seedAgentDir,
 } from "../helpers/electron-app";
+
+const execFileAsync = promisify(execFile);
+
+async function initializeGitWorkspace(path: string): Promise<void> {
+  const git = (...args: string[]) =>
+    execFileAsync("git", args, { cwd: path, env: { ...process.env, GIT_DIR: undefined } });
+  await git("init", "-q", "-b", "main");
+  await git("config", "user.name", "Lancer Test");
+  await git("config", "user.email", "test@example.com");
+  await writeFile(join(path, "seed.txt"), "seed\n");
+  await git("add", "seed.txt");
+  await git("commit", "-qm", "seed");
+}
 
 async function startHangingOpenAiServer(): Promise<{
   readonly baseUrl: string;
@@ -74,6 +89,7 @@ test("create_child_thread returns after a slow worker starts, before its turn co
   const userDataDir = await makeUserDataDir();
   const agentDir = join(userDataDir, "agent");
   const workspacePath = await makeWorkspace("orchestration-runtime-start-ack");
+  await initializeGitWorkspace(workspacePath);
   await seedAgentDir(agentDir, {
     withOpenAiAuth: false,
     withDefaultModel: false,
@@ -137,6 +153,24 @@ test("create_child_thread returns after a slow worker starts, before its turn co
       (entry) => entry.sourceToolCallId === "create-child-start-ack",
     );
     expect(child?.status).toBe("running");
+    expect(result.details).toMatchObject({ isolation: "worktree" });
+    const state = await getDesktopState(window);
+    const childSession = state.workspaces
+      .flatMap((workspace) => workspace.sessions)
+      .find((session) => session.id === child?.childSessionId);
+    expect(childSession?.worktree?.branch).toBe(`lancer/${child?.childSessionId}`);
+    expect(childSession?.worktree?.path).not.toBe(workspacePath);
+    const catalog = JSON.parse(await readFile(join(userDataDir, "catalogs.json"), "utf8")) as {
+      sessions: Array<{
+        sessionRef: { sessionId: string };
+        executionCwd?: string;
+        worktreePath?: string;
+      }>;
+    };
+    const childCatalogEntry = catalog.sessions.find(
+      (entry) => entry.sessionRef.sessionId === child?.childSessionId,
+    );
+    expect(childCatalogEntry?.executionCwd).toBe(childSession?.worktree?.path);
     const childRunningIndicator = window.locator(`.lhc[data-l="lane:${child?.childSessionId}"] .s`);
     await expect(childRunningIndicator).toBeVisible();
     await expect(childRunningIndicator).toHaveText("运行中");
@@ -146,6 +180,103 @@ test("create_child_thread returns after a slow worker starts, before its turn co
         fullPage: true,
       });
     }
+  } finally {
+    await harness.close();
+    await server.close();
+  }
+});
+
+test("shared child inherits a parent worktree execution directory", async () => {
+  test.setTimeout(60_000);
+  const server = await startHangingOpenAiServer();
+  const userDataDir = await makeUserDataDir();
+  const agentDir = join(userDataDir, "agent");
+  const workspacePath = await makeWorkspace("orchestration-shared-parent-worktree");
+  await initializeGitWorkspace(workspacePath);
+  await seedAgentDir(agentDir, {
+    withOpenAiAuth: false,
+    withDefaultModel: false,
+    enabledModels: ["slow-test/slow"],
+  });
+  await writeFile(
+    join(agentDir, "settings.json"),
+    JSON.stringify({
+      defaultProvider: "slow-test",
+      defaultModel: "slow",
+      enabledModels: ["slow-test/slow"],
+    }),
+  );
+  await writeFile(
+    join(agentDir, "models.json"),
+    JSON.stringify({
+      providers: {
+        "slow-test": {
+          baseUrl: server.baseUrl,
+          api: "openai-completions",
+          apiKey: "unused",
+          models: [{ id: "slow" }],
+        },
+      },
+    }),
+  );
+  const harness = await launchDesktop(userDataDir, {
+    agentDir,
+    initialWorkspaces: [workspacePath],
+    scrubProviderEnv: true,
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    const initial = await getDesktopState(window);
+    const workspaceId = initial.workspaces.find((entry) => entry.path === workspacePath)?.id;
+    expect(workspaceId).toBeTruthy();
+    await window.evaluate(async (rootWorkspaceId) => {
+      const app = globalThis.window.piApp;
+      if (!app) throw new Error("piApp IPC bridge is unavailable");
+      await app.startThread({
+        rootWorkspaceId,
+        environment: "local",
+        useWorktree: true,
+        prompt: "",
+      });
+    }, workspaceId!);
+    const parentRef = await selectedSessionRef(window);
+    const parentState = await getDesktopState(window);
+    const parent = parentState.workspaces
+      .flatMap((workspace) => workspace.sessions)
+      .find((session) => session.id === parentRef.sessionId);
+    expect(parent?.worktree?.path).toBeTruthy();
+
+    const result = await runOrchestrationRuntimeTool(harness, {
+      toolName: "create_child_thread",
+      toolCallId: "create-shared-child",
+      sessionRef: parentRef,
+      params: { prompt: "Read-only inspection only.", isolation: "shared" },
+    });
+    expect(result.details).toMatchObject({ isolation: "shared", deliveryStatus: "running" });
+    await expect.poll(() => server.pendingRequestCount()).toBeGreaterThan(0);
+
+    const current = await getDesktopState(window);
+    const child = current.orchestrationChildren.find(
+      (entry) => entry.sourceToolCallId === "create-shared-child",
+    );
+    const childSession = current.workspaces
+      .flatMap((workspace) => workspace.sessions)
+      .find((session) => session.id === child?.childSessionId);
+    expect(childSession?.worktree).toBeUndefined();
+    const catalog = JSON.parse(await readFile(join(userDataDir, "catalogs.json"), "utf8")) as {
+      sessions: Array<{
+        sessionRef: { sessionId: string };
+        executionCwd?: string;
+        worktreePath?: string;
+      }>;
+    };
+    const childCatalogEntry = catalog.sessions.find(
+      (entry) => entry.sessionRef.sessionId === child?.childSessionId,
+    );
+    expect(childCatalogEntry?.executionCwd).toBe(parent?.worktree?.path);
+    expect(childCatalogEntry?.executionCwd).not.toBe(workspacePath);
   } finally {
     await harness.close();
     await server.close();

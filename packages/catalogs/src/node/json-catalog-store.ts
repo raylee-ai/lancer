@@ -39,9 +39,15 @@ const runtimeMetadataKeys = [
   "progress",
   "resultPath",
   "worktreePath",
+  "executionCwd",
   "worktreeBranch",
   "worktreeBaseBranch",
   "worktreeBaseSha",
+  "worktreeCompletedSha",
+  "worktreeInitFailure",
+  "orchestrationParentWorkspaceId",
+  "orchestrationParentSessionId",
+  "orchestrationIsolation",
 ] as const satisfies readonly (keyof SessionRuntimeMetadata)[];
 
 function runtimeMetadata(entry: SessionRuntimeMetadata): SessionRuntimeMetadata {

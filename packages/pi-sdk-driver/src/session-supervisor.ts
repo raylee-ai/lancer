@@ -251,8 +251,9 @@ function allocatedSessionIdOf(manager: SessionManager): string | undefined {
 
 async function executionCwdForCatalogEntry(entry: {
   readonly worktreePath?: string | null;
+  readonly executionCwd?: string | null;
 }): Promise<string | undefined> {
-  const path = entry.worktreePath;
+  const path = entry.executionCwd ?? entry.worktreePath;
   if (typeof path !== "string" || !path.trim()) return undefined;
   try {
     const info = await stat(path);

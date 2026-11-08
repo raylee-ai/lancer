@@ -75,7 +75,8 @@ function isWorkspaceEntry(value: unknown): value is WorkspaceCatalogEntry {
     hasStrings(value, ["workspaceId", "path", "displayName", "lastOpenedAt"]) &&
     typeof value.sortOrder === "number" &&
     Number.isFinite(value.sortOrder) &&
-    (value.pinned === undefined || typeof value.pinned === "boolean")
+    (value.pinned === undefined || typeof value.pinned === "boolean") &&
+    (value.worktreeInitCommand === undefined || typeof value.worktreeInitCommand === "string")
   );
 }
 
@@ -114,9 +115,23 @@ export function isSessionEntry(value: unknown): value is SessionCatalogEntry {
         Number.isFinite(value.progress) &&
         value.progress >= 0 &&
         value.progress <= 1)) &&
-    ["worktreePath", "worktreeBranch", "worktreeBaseBranch", "worktreeBaseSha"].every(
+    [
+      "worktreePath",
+      "executionCwd",
+      "worktreeBranch",
+      "worktreeBaseBranch",
+      "worktreeBaseSha",
+      "worktreeCompletedSha",
+      "worktreeInitFailure",
+      "orchestrationParentWorkspaceId",
+      "orchestrationParentSessionId",
+    ].every(
       (key) => value[key] === undefined || value[key] === null || typeof value[key] === "string",
     ) &&
+    (value.orchestrationIsolation === undefined ||
+      value.orchestrationIsolation === null ||
+      value.orchestrationIsolation === "worktree" ||
+      value.orchestrationIsolation === "shared") &&
     isRecord(value.sessionRef) &&
     hasStrings(value.sessionRef, ["workspaceId", "sessionId"]) &&
     value.sessionRef.workspaceId === value.workspaceId &&

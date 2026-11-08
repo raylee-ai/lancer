@@ -216,6 +216,12 @@ contextBridge.exposeInMainWorld("piApp", {
     ) as Promise<DesktopAppState>,
   removeWorkspace: (workspaceId: string) =>
     ipcRenderer.invoke(desktopIpc.removeWorkspace, workspaceId) as Promise<DesktopAppState>,
+  setWorkspaceWorktreeInitCommand: (workspaceId: string, command: string) =>
+    ipcRenderer.invoke(
+      desktopIpc.setWorkspaceWorktreeInitCommand,
+      workspaceId,
+      command,
+    ) as Promise<DesktopAppState>,
   reorderWorkspaces: (workspaceOrder: readonly string[]) =>
     ipcRenderer.invoke(desktopIpc.reorderWorkspaces, workspaceOrder) as Promise<DesktopAppState>,
   reorderPinnedSessions: (pinnedSessionOrder: readonly string[]) =>
@@ -253,8 +259,12 @@ contextBridge.exposeInMainWorld("piApp", {
     ipcRenderer.invoke(desktopIpc.createSession, input) as Promise<DesktopAppState>,
   getSessionWorktreeDiff: (target: WorkspaceSessionTarget) =>
     ipcRenderer.invoke(desktopIpc.getSessionWorktreeDiff, target) as Promise<SessionWorktreeDiff>,
-  mergeSessionWorktree: (target: WorkspaceSessionTarget) =>
-    ipcRenderer.invoke(desktopIpc.mergeSessionWorktree, target) as Promise<DesktopAppState>,
+  mergeSessionWorktree: (target: WorkspaceSessionTarget, completedSha?: string) =>
+    ipcRenderer.invoke(
+      desktopIpc.mergeSessionWorktree,
+      target,
+      completedSha,
+    ) as Promise<DesktopAppState>,
   discardSessionWorktree: (target: WorkspaceSessionTarget) =>
     ipcRenderer.invoke(desktopIpc.discardSessionWorktree, target) as Promise<DesktopAppState>,
   startThread: (input: StartThreadInput) =>
