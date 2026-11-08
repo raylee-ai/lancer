@@ -33,6 +33,27 @@ test("classifies GitHub 504 downloads of winCodeSign and Electron as transient",
   );
 });
 
+test("classifies electron install and electron-builder gateway timeouts as transient", () => {
+  assert.equal(
+    isTransientGithubDownloadFailure(
+      "HTTPError: Response code 504 (Gateway Time-out) for https://github.com/electron/electron/releases/download/v43.8.4/electron-v43.8.4-linux-x64.zip",
+    ),
+    true,
+  );
+  assert.equal(
+    isTransientGithubDownloadFailure(
+      "  ⨯ Response code 504 (Gateway Time-out)  failedTask=build stackTrace=HTTPError: Response code 504 (Gateway Time-out)",
+    ),
+    true,
+  );
+  assert.equal(
+    isTransientGithubDownloadFailure(
+      "Response code 504 (Gateway Time-out) for https://example.com/electron.zip",
+    ),
+    false,
+  );
+});
+
 test("does not retry ordinary electron-builder failures", () => {
   assert.equal(isTransientGithubDownloadFailure(""), false);
   assert.equal(

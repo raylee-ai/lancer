@@ -4,8 +4,17 @@ export const DEFAULT_GITHUB_DOWNLOAD_RETRY_DELAY_MS = 15_000;
 const TRANSIENT_GITHUB_DOWNLOAD =
   /cannot resolve https:\/\/github\.com\/\S+: status code 50[234]\b/;
 
+// @electron/get reports "Response code 504 (Gateway Time-out) for https://github.com/...".
+// electron-builder 26 reports the same gateway timeout on one line with failedTask=build
+// and does not repeat the GitHub URL.
+const TRANSIENT_RESPONSE_CODE =
+  /Response code 50[234]\b[\s\S]{0,160}https:\/\/github\.com\/|Response code 50[234] \(Gateway Time-out\)[\s\S]{0,160}failedTask=build/;
+
 export function isTransientGithubDownloadFailure(output) {
-  return typeof output === "string" && TRANSIENT_GITHUB_DOWNLOAD.test(output);
+  return (
+    typeof output === "string" &&
+    (TRANSIENT_GITHUB_DOWNLOAD.test(output) || TRANSIENT_RESPONSE_CODE.test(output))
+  );
 }
 
 export function githubDownloadRetryDelayMs(
