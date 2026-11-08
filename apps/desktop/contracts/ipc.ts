@@ -183,6 +183,7 @@ export const desktopIpc = {
   windowFocused: "pi-gui:window-focused",
   ping: "app:ping",
   openExternal: "app:open-external",
+  launchLocalApp: "app:launch-local-app",
   relaunchApplication: "pi-gui:relaunch-application",
   doubaoAppStatus: "pi-gui:doubao-app-status",
   doubaoAppBind: "pi-gui:doubao-app-bind",
@@ -654,6 +655,10 @@ export function isCloseFocusedSurfaceShortcut(input: {
   return input.key.toLowerCase() === "w" || input.code === "KeyW";
 }
 
+/** Desktop apps the shell may start. Adding one here is not enough on its own: the
+ * main process only starts the executables it resolves for these ids. */
+export type LocalAppId = "workbuddy" | "marvis" | "opencode";
+
 export interface PiDesktopApi {
   platform: NodeJS.Platform;
   /** Host can open a Doubao App session: macOS, or a test that injects a helper. */
@@ -843,6 +848,7 @@ export interface PiDesktopApi {
   changeReviewFileStage(input: ChangeReviewFileStageInput): Promise<ChangeReviewFileStageResult>;
   toggleWindowMaximize(): Promise<void>;
   openExternal(url: string): Promise<void>;
+  launchLocalApp(appId: LocalAppId): Promise<void>;
   getThemeMode(): Promise<"system" | "light" | "dark">;
   getResolvedTheme(): Promise<"light" | "dark">;
   setThemeMode(mode: "system" | "light" | "dark"): Promise<DesktopAppState>;
