@@ -19,6 +19,7 @@ import {
 } from "../../electron/platform/worktrees/session-worktree";
 import {
   mergeChildSessionWorktree,
+  mergeSessionWorktree as mergeSessionWorktreeThroughUi,
   runWorktreeInitialization,
 } from "../../electron/workspace/session-worktree-sessions";
 
@@ -115,6 +116,29 @@ async function makeChildMergeHost(
         ref.sessionId === childSessionId ? { status: "idle" } : undefined,
     },
     retargeted,
+  };
+}
+
+async function recordChildCompletion(
+  host: Parameters<typeof mergeChildSessionWorktree>[0],
+  childPath: string,
+  completedSha: string,
+): Promise<void> {
+  await host.catalogStore.sessions.updateControlMetadata(
+    { workspaceId: "workspace", sessionId: basename(childPath) },
+    { worktreeCompletedSha: completedSha },
+  );
+}
+
+function makeUiMergeHost(
+  host: Parameters<typeof mergeChildSessionWorktree>[0],
+): Parameters<typeof mergeSessionWorktreeThroughUi>[0] {
+  return {
+    ...host,
+    withErrorHandling: (action) => action(),
+    refreshState: async () => {
+      throw new Error("The rejected merge must not refresh state.");
+    },
   };
 }
 
@@ -242,6 +266,10 @@ test("completion records an exact diff and applies it to a dirty parent checkout
   assertExists(child);
   await writeFile(join(child.path, "child-change.txt"), "child\n");
   const completedSha = await commitSessionWorktree(child);
+  expect(await git(child.path, "status", "--porcelain")).toBe("");
+  await writeFile(join(child.path, "child-change.txt"), "follow-up edit\n");
+  expect(await git(child.path, "status", "--porcelain")).toBe("M child-change.txt");
+  await writeFile(join(child.path, "child-change.txt"), "child\n");
   const completion = await readSessionWorktreeCompletion(child, completedSha);
   expect(completion.baseSha).toBe(snapshot.baseSha);
   expect(completion.completedSha).toBe(completedSha);
@@ -323,6 +351,7 @@ test("merging a child completion applies it to the parent worktree and cleans it
   await writeFile(join(child.path, "child-edit.txt"), "child\n");
   const completedSha = await commitSessionWorktree(child);
   const { host, retargeted } = await makeChildMergeHost(repo, parent.path, parent.branch, child);
+  await recordChildCompletion(host, child.path, completedSha);
 
   const result = await mergeChildSessionWorktree(
     host,
@@ -347,6 +376,135 @@ test("merging a child completion applies it to the parent worktree and cleans it
   expect(retargeted).toEqual([basename(child.path)]);
 });
 
+test("only the latest returned child completion can be merged", async () => {
+  const repo = await makeRepo();
+  const parent = await createSessionWorktree(repo, "latest-parent");
+  assertExists(parent);
+  const snapshot = await snapshotSessionWorktree(parent.path);
+  const child = await createSessionWorktree(parent.path, "latest-child", snapshot.baseSha);
+  assertExists(child);
+
+  await writeFile(join(child.path, "first.txt"), "first completion\n");
+  const firstSha = await commitSessionWorktree(child);
+  const { host } = await makeChildMergeHost(repo, parent.path, parent.branch, child);
+  await recordChildCompletion(host, child.path, firstSha);
+
+  await writeFile(join(child.path, "second.txt"), "second completion\n");
+  const latestSha = await commitSessionWorktree(child);
+  await recordChildCompletion(host, child.path, latestSha);
+  const parentBefore = {
+    files: await git(parent.path, "ls-files", "--cached", "--others", "--exclude-standard"),
+    status: await git(parent.path, "status", "--porcelain"),
+    seed: await readFile(join(parent.path, "seed.txt"), "utf8"),
+  };
+  const childBefore = await git(child.path, "status", "--porcelain");
+  const branchBefore = await git(repo, "rev-parse", child.branch);
+  const metadataBefore = await host.catalogStore.sessions.getControlMetadata({
+    workspaceId: "workspace",
+    sessionId: basename(child.path),
+  });
+
+  const stale = await mergeChildSessionWorktree(
+    host,
+    { workspaceId: "workspace", sessionId: basename(child.path) },
+    firstSha,
+  );
+  expect(stale).toMatchObject({
+    applied: false,
+    error: expect.stringContaining(latestSha),
+  });
+  expect(stale.error).toContain("read_thread");
+  expect({
+    files: await git(parent.path, "ls-files", "--cached", "--others", "--exclude-standard"),
+    status: await git(parent.path, "status", "--porcelain"),
+    seed: await readFile(join(parent.path, "seed.txt"), "utf8"),
+  }).toEqual(parentBefore);
+  expect(await git(child.path, "status", "--porcelain")).toBe(childBefore);
+  expect(await git(repo, "rev-parse", child.branch)).toBe(branchBefore);
+  expect(await git(repo, "worktree", "list", "--porcelain")).toContain(child.path);
+  expect(
+    await host.catalogStore.sessions.getControlMetadata({
+      workspaceId: "workspace",
+      sessionId: basename(child.path),
+    }),
+  ).toEqual(metadataBefore);
+
+  const merged = await mergeChildSessionWorktree(
+    host,
+    { workspaceId: "workspace", sessionId: basename(child.path) },
+    latestSha,
+  );
+  expect(merged).toEqual({ applied: true, conflicts: [] });
+  expect(await readFile(join(parent.path, "first.txt"), "utf8")).toBe("first completion\n");
+  expect(await readFile(join(parent.path, "second.txt"), "utf8")).toBe("second completion\n");
+  expect(await git(repo, "branch", "--list", child.branch)).toBe("");
+  expect(await git(repo, "worktree", "list", "--porcelain")).not.toContain(child.path);
+});
+
+test("tool and UI merge paths retain child worktree state when it has unreturned edits", async () => {
+  const repo = await makeRepo();
+  const parent = await createSessionWorktree(repo, "unreturned-parent");
+  assertExists(parent);
+  const snapshot = await snapshotSessionWorktree(parent.path);
+  const child = await createSessionWorktree(parent.path, "unreturned-child", snapshot.baseSha);
+  assertExists(child);
+  await writeFile(join(child.path, "returned.txt"), "returned\n");
+  const completedSha = await commitSessionWorktree(child);
+  await writeFile(join(child.path, "unreturned.txt"), "not returned\n");
+  const { host, retargeted } = await makeChildMergeHost(repo, parent.path, parent.branch, child);
+  await recordChildCompletion(host, child.path, completedSha);
+  const initialParentFiles = await git(
+    parent.path,
+    "ls-files",
+    "--cached",
+    "--others",
+    "--exclude-standard",
+  );
+
+  const toolResult = await mergeChildSessionWorktree(
+    host,
+    { workspaceId: "workspace", sessionId: basename(child.path) },
+    completedSha,
+  );
+  expect(toolResult.applied).toBe(false);
+  expect(toolResult.error).toContain("not been returned");
+  expect(toolResult.error).toContain("send_message_to_thread");
+  expect(toolResult.error).toContain("discard and clean up");
+  expect(await git(parent.path, "ls-files", "--cached", "--others", "--exclude-standard")).toBe(
+    initialParentFiles,
+  );
+  expect(await readFile(join(child.path, "unreturned.txt"), "utf8")).toBe("not returned\n");
+  expect(await git(child.path, "status", "--porcelain")).toContain("?? unreturned.txt");
+  expect(await git(repo, "rev-parse", child.branch)).toBe(completedSha);
+  expect(await git(repo, "worktree", "list", "--porcelain")).toContain(child.path);
+  const metadataBeforeUi = await host.catalogStore.sessions.getControlMetadata({
+    workspaceId: "workspace",
+    sessionId: basename(child.path),
+  });
+
+  await expect(
+    mergeSessionWorktreeThroughUi(
+      makeUiMergeHost(host),
+      { workspaceId: "workspace", sessionId: basename(child.path) },
+      completedSha,
+    ),
+  ).rejects.toThrow("not been returned");
+  expect(await git(parent.path, "ls-files", "--cached", "--others", "--exclude-standard")).toBe(
+    initialParentFiles,
+  );
+  expect(await readFile(join(child.path, "unreturned.txt"), "utf8")).toBe("not returned\n");
+  expect(await git(child.path, "status", "--porcelain")).toContain("?? unreturned.txt");
+  expect(await git(repo, "rev-parse", child.branch)).toBe(completedSha);
+  expect(await git(repo, "worktree", "list", "--porcelain")).toContain(child.path);
+  expect(
+    await host.catalogStore.sessions.getControlMetadata({
+      workspaceId: "workspace",
+      sessionId: basename(child.path),
+    }),
+  ).toEqual(metadataBeforeUi);
+  expect(retargeted).toEqual([]);
+});
+
 test("child merge conflict preserves the parent worktree and retains the child branch", async () => {
   const repo = await makeRepo();
   const parent = await createSessionWorktree(repo, "conflict-parent");
@@ -356,6 +514,8 @@ test("child merge conflict preserves the parent worktree and retains the child b
   assertExists(child);
   await writeFile(join(child.path, "seed.txt"), "child\n");
   const completedSha = await commitSessionWorktree(child);
+  const { host } = await makeChildMergeHost(repo, parent.path, parent.branch, child);
+  await recordChildCompletion(host, child.path, completedSha);
   await writeFile(join(parent.path, "seed.txt"), "parent\n");
   const before = {
     file: await readFile(join(parent.path, "seed.txt"), "utf8"),
@@ -363,8 +523,6 @@ test("child merge conflict preserves the parent worktree and retains the child b
     branch: await git(parent.path, "branch", "--show-current"),
     status: await git(parent.path, "status", "--porcelain"),
   };
-  const { host } = await makeChildMergeHost(repo, parent.path, parent.branch, child);
-
   const result = await mergeChildSessionWorktree(
     host,
     { workspaceId: "workspace", sessionId: basename(child.path) },

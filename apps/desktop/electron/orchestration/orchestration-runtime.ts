@@ -285,11 +285,12 @@ function createMergeChildThreadTool(
     name: mergeChildThreadToolName,
     label: "Merge child thread",
     description:
-      "Apply a reviewed child-thread completion diff to the parent session directory and clean up its worktree.",
+      "Apply only the latest returned, reviewed child-thread completion diff to the parent session directory and clean up its worktree. Merging is refused if the child worktree has any later changes.",
     promptSnippet: "Merge a specific reviewed child completion into the parent session.",
     promptGuidelines: [
-      "Read the child completion diff with read_thread and its full commit_sha before merging.",
+      "Only the latest completion returned by the child may be merged. Read that completion diff with read_thread and its full commit_sha before merging.",
       "Pass that exact completed SHA to merge_child_thread. If conflicts are reported, tell the user and do not retry automatically.",
+      "If the child worktree has changes after its latest returned completion, do not merge. Ask the child to finish a run and return a new completion, or ask the user to discard and clean up the worktree.",
     ],
     parameters: {
       type: "object",
@@ -300,7 +301,8 @@ function createMergeChildThreadTool(
         },
         completed_sha: {
           type: "string",
-          description: "Exact completion commit SHA returned by the child's branch evidence.",
+          description:
+            "Exact SHA of the latest returned child completion after reviewing its diff with read_thread.",
         },
       },
       required: ["thread_id", "completed_sha"],

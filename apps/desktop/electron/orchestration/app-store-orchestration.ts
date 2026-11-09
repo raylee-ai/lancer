@@ -971,6 +971,13 @@ async function mergeChildThreadToolResult(
       "A full completion commit id is required.",
     );
   }
+  if (store.sessionFromState(target.sessionRef)?.status === "running") {
+    return mergeChildThreadErrorResult(
+      input.threadId,
+      input.completedSha,
+      "Wait for the child thread to finish and return a completion before merging.",
+    );
+  }
   const recorded = target.child.evidence.some(
     (record) =>
       record.completion?.isolation === "worktree" &&
@@ -983,13 +990,6 @@ async function mergeChildThreadToolResult(
       "Read and verify a completion SHA recorded for this child before merging.",
     );
   }
-  if (store.sessionFromState(target.sessionRef)?.status === "running") {
-    return mergeChildThreadErrorResult(
-      input.threadId,
-      input.completedSha,
-      "The child thread is still running; stop it before merging.",
-    );
-  }
 
   const result = await mergeChildSessionWorktree(
     store,
@@ -999,6 +999,9 @@ async function mergeChildThreadToolResult(
     },
     input.completedSha,
   );
+  if (result.error) {
+    return mergeChildThreadErrorResult(input.threadId, input.completedSha, result.error);
+  }
   if (!result.applied) {
     const details: MergeChildThreadToolDetails = {
       action: mergeChildThreadAction,

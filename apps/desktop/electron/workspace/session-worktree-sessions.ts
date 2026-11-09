@@ -21,6 +21,7 @@ import {
   readSessionWorktreeCompletion,
   applySessionWorktreeCompletion,
   readSessionWorktreeDiff as readWorktreeDiff,
+  sessionWorktreeMatchesCommit,
   removeSessionWorktree,
   createSessionWorktree,
   type SessionWorktreeBinding,
@@ -40,6 +41,9 @@ interface SessionWorktreeHost {
 interface ChildSessionWorktreeHost extends SessionWorktreeHost {
   readonly driver: Pick<PiSdkDriver, "createSession" | "retargetExecutionCwd">;
 }
+
+type SessionWorktreeMergeHost = ChildSessionWorktreeHost &
+  Pick<WorkspaceOwnerHost, "withErrorHandling" | "refreshState">;
 
 type ChildSessionIsolationHost = ChildSessionWorktreeHost;
 
@@ -269,7 +273,7 @@ function assertSessionIdle(
 ): void {
   const session = store.sessionFromState(ref);
   if (session?.status === "running") {
-    throw new Error("Stop the session before merging or discarding its worktree.");
+    throw new Error("Wait for the session to finish before merging or discarding its worktree.");
   }
 }
 
@@ -292,7 +296,7 @@ export async function readSessionWorktreeDiff(
 }
 
 export async function mergeSessionWorktree(
-  store: WorkspaceOwnerHost,
+  store: SessionWorktreeMergeHost,
   target: WorkspaceSessionTarget,
   completedSha?: string,
 ): Promise<DesktopAppState> {
@@ -317,6 +321,7 @@ export async function mergeSessionWorktree(
         binding,
         metadata,
       );
+      if (result.error) throw new Error(result.error);
       if (!result.applied) {
         throw new Error(`Child worktree conflicts: ${result.conflicts.join(", ")}`);
       }
@@ -331,7 +336,11 @@ export async function mergeChildSessionWorktree(
   store: ChildSessionWorktreeHost,
   target: WorkspaceSessionTarget,
   completedSha: string,
-): Promise<{ readonly applied: boolean; readonly conflicts: readonly string[] }> {
+): Promise<{
+  readonly applied: boolean;
+  readonly conflicts: readonly string[];
+  readonly error?: string;
+}> {
   await store.initialize();
   const { ref, binding } = await requireBinding(store, target);
   assertSessionIdle(store, ref);
@@ -353,7 +362,29 @@ async function applyChildSessionWorktreeCompletion(
   metadata: NonNullable<
     Awaited<ReturnType<ChildSessionWorktreeHost["catalogStore"]["sessions"]["getControlMetadata"]>>
   >,
-): Promise<{ readonly applied: boolean; readonly conflicts: readonly string[] }> {
+): Promise<{
+  readonly applied: boolean;
+  readonly conflicts: readonly string[];
+  readonly error?: string;
+}> {
+  const latestCompletedSha = metadata.worktreeCompletedSha;
+  if (latestCompletedSha !== completedSha) {
+    return {
+      applied: false,
+      conflicts: [],
+      error: latestCompletedSha
+        ? `This is not the latest returned completion. Latest completion: ${latestCompletedSha}. Read and review that version with read_thread before merging.`
+        : "This child thread has no returned completion to merge.",
+    };
+  }
+  if (!(await sessionWorktreeMatchesCommit(binding, completedSha))) {
+    return {
+      applied: false,
+      conflicts: [],
+      error:
+        "The child worktree contains changes that have not been returned. To merge, use send_message_to_thread to ask the child to finish a run and return a new completion, then review that version. If these changes are not wanted, have the user discard and clean up the worktree.",
+    };
+  }
   const parentRef = {
     workspaceId: metadata.orchestrationParentWorkspaceId!,
     sessionId: metadata.orchestrationParentSessionId!,

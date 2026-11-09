@@ -284,8 +284,37 @@ export async function commitSessionWorktree(binding: SessionWorktreeBinding): Pr
       snapshot.baseSha,
       currentHead,
     ]);
+    await runGit(binding.path, ["reset", "-q"]);
     return snapshot.baseSha;
   });
+}
+
+/** Check the worktree tree without consulting or modifying its real index. */
+export async function sessionWorktreeMatchesCommit(
+  binding: SessionWorktreeBinding,
+  commitSha: string,
+): Promise<boolean> {
+  assertWorktreeBinding(binding);
+  if (!/^[0-9a-f]{40,64}$/i.test(commitSha)) {
+    throw new Error("A full completion commit id is required.");
+  }
+  const tempRoot = await mkdtemp(join(tmpdir(), "lancer-worktree-check-"));
+  const indexFile = join(tempRoot, "index");
+  const env = { GIT_INDEX_FILE: indexFile };
+  try {
+    await runGit(binding.repoRoot, ["cat-file", "-e", `${commitSha}^{commit}`]);
+    const [worktreeTree, commitTree] = await Promise.all([
+      (async () => {
+        await runGit(binding.path, ["read-tree", "HEAD"], env);
+        await runGit(binding.path, ["add", "-A"], env);
+        return runGit(binding.path, ["write-tree"], env);
+      })(),
+      runGit(binding.repoRoot, ["rev-parse", `${commitSha}^{tree}`]),
+    ]);
+    return worktreeTree === commitTree;
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
 }
 
 /** Read an immutable diff for a previously recorded completion commit. */

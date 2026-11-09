@@ -152,8 +152,21 @@ test("create_child_thread returns after a slow worker starts, before its turn co
     const child = (await getDesktopState(window)).orchestrationChildren.find(
       (entry) => entry.sourceToolCallId === "create-child-start-ack",
     );
-    expect(child?.status).toBe("running");
+    if (!child) throw new Error("Expected the delegated child thread to exist.");
+    expect(child.status).toBe("running");
     expect(result.details).toMatchObject({ isolation: "worktree" });
+    const mergeWhileRunning = await runOrchestrationRuntimeTool(harness, {
+      toolName: "merge_child_thread",
+      toolCallId: "merge-running-child",
+      sessionRef: parentRef,
+      params: {
+        thread_id: child.id,
+        completed_sha: "a".repeat(40),
+      },
+    });
+    expect(mergeWhileRunning.details).toMatchObject({
+      error: "Wait for the child thread to finish and return a completion before merging.",
+    });
     const state = await getDesktopState(window);
     const childSession = state.workspaces
       .flatMap((workspace) => workspace.sessions)
