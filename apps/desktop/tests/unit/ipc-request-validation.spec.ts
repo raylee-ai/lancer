@@ -3,6 +3,7 @@ import {
   expectAppView,
   expectCreateScheduledTaskInput,
   expectCustomProviderConfig,
+  expectCustomProviderProbeInput,
   expectForkThreadInput,
   expectHostUiResponse,
   expectModelSettingsScopeMode,
@@ -122,6 +123,57 @@ test("IPC request validation decodes persisted settings records", () => {
       models: [{ id: "model-a", contextWindow: -1 }],
     }),
   ).toThrow("config.models[0].contextWindow must be a positive integer");
+});
+
+test("custom provider IPC preserves explicitly selected supported protocols", () => {
+  for (const api of ["openai-completions", "openai-responses", "anthropic-messages"]) {
+    const request = {
+      providerId: "gateway",
+      baseUrl: "https://gateway.example/v1",
+      api,
+      models: [{ id: "model-a", contextWindow: 32_000 }],
+    };
+    expect(expectCustomProviderConfig(request)).toEqual({ ...request, apiKey: undefined });
+    expect(expectCustomProviderProbeInput({ baseUrl: request.baseUrl, api })).toEqual({
+      baseUrl: request.baseUrl,
+      apiKey: undefined,
+      api,
+    });
+  }
+});
+
+test("custom provider IPC retains the legacy decoded shape when protocol is absent", () => {
+  for (const optionalProtocol of [{}, { api: undefined }]) {
+    const config = expectCustomProviderConfig({
+      providerId: "local",
+      baseUrl: "http://localhost:8080/v1",
+      models: [{ id: "model-a" }],
+      ...optionalProtocol,
+    });
+    const probe = expectCustomProviderProbeInput({
+      baseUrl: "http://localhost:8080/v1",
+      ...optionalProtocol,
+    });
+    expect(Object.hasOwn(config, "api")).toBe(false);
+    expect(Object.hasOwn(probe, "api")).toBe(false);
+    expect(probe).toEqual({ baseUrl: "http://localhost:8080/v1", apiKey: undefined });
+  }
+});
+
+test("custom provider IPC rejects malformed or unsupported explicit protocols", () => {
+  for (const api of [null, "", "openai", "ollama", "OPENAI-COMPLETIONS", {}, 1]) {
+    expect(() =>
+      expectCustomProviderConfig({
+        providerId: "local",
+        baseUrl: "http://localhost:8080/v1",
+        models: [{ id: "model-a" }],
+        api,
+      }),
+    ).toThrow("config.api must be a supported custom provider API");
+    expect(() =>
+      expectCustomProviderProbeInput({ baseUrl: "http://localhost:8080/v1", api }),
+    ).toThrow("input.api must be a supported custom provider API");
+  }
 });
 
 test("IPC request validation checks discriminated command records", () => {

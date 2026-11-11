@@ -5,6 +5,8 @@ import {
   CUSTOM_PROVIDER_ID_PATTERN,
   CUSTOM_PROVIDER_PLACEHOLDER_API_KEY,
   isValidHttpBaseUrl,
+  isCustomProviderApi,
+  normalizeAnthropicBaseUrl,
   OPENAI_COMPLETIONS_API,
   PI_GUI_CUSTOM_PROVIDER_MARKER,
   type CustomProviderEntry,
@@ -56,7 +58,10 @@ export class CustomProviderStore {
           `Provider ID "${input.providerId}" already exists in models.json and is not managed by pi-gui.`,
         );
       }
-      providers[input.providerId] = toProviderConfig(input);
+      providers[input.providerId] = toProviderConfig(
+        input,
+        isRecord(existing) ? existing : undefined,
+      );
       await atomicWriteJson(this.modelsJsonPath, data);
     });
   }
@@ -86,6 +91,9 @@ export class CustomProviderStore {
 }
 
 function validateInput(input: CustomProviderInput): void {
+  if (input.api !== undefined && !isCustomProviderApi(input.api)) {
+    throw new Error("Unsupported custom provider API protocol.");
+  }
   if (!CUSTOM_PROVIDER_ID_PATTERN.test(input.providerId)) {
     throw new Error(
       `Provider ID must be lowercase alphanumerics or dashes (max 64 chars): ${JSON.stringify(input.providerId)}`,
@@ -109,17 +117,33 @@ function validateInput(input: CustomProviderInput): void {
   }
 }
 
-function toProviderConfig(input: CustomProviderInput): Record<string, unknown> {
+function toProviderConfig(
+  input: CustomProviderInput,
+  existing?: Record<string, unknown>,
+): Record<string, unknown> {
   const trimmedKey = input.apiKey?.trim();
+  const api = input.api ?? existing?.api ?? OPENAI_COMPLETIONS_API;
+  const existingModels = new Map<string, Record<string, unknown>>();
+  if (Array.isArray(existing?.models)) {
+    for (const model of existing.models) {
+      if (isRecord(model) && typeof model.id === "string") {
+        existingModels.set(model.id, model);
+      }
+    }
+  }
   return {
-    baseUrl: input.baseUrl,
-    api: OPENAI_COMPLETIONS_API,
+    ...existing,
+    baseUrl:
+      api === "anthropic-messages" ? normalizeAnthropicBaseUrl(input.baseUrl) : input.baseUrl,
+    api,
     apiKey: trimmedKey ? trimmedKey : CUSTOM_PROVIDER_PLACEHOLDER_API_KEY,
     [PI_GUI_CUSTOM_PROVIDER_MARKER]: true,
     models: input.models.map((model) => {
-      const entry: Record<string, unknown> = { id: model.id };
+      const entry: Record<string, unknown> = { ...existingModels.get(model.id), id: model.id };
       if (model.contextWindow !== undefined) {
         entry.contextWindow = model.contextWindow;
+      } else {
+        delete entry.contextWindow;
       }
       return entry;
     }),
@@ -167,6 +191,7 @@ function readCustomProviders(data: ModelsJson): readonly CustomProviderEntry[] {
     entries.push({
       providerId,
       baseUrl,
+      ...(isCustomProviderApi(config.api) ? { api: config.api } : {}),
       ...(apiKey !== undefined ? { apiKey } : {}),
       models,
     });

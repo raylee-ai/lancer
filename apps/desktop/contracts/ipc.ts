@@ -16,6 +16,7 @@ import type {
   ExtensionViewCatalogChange,
 } from "./extension-views";
 import type { RuntimeSettingsSnapshot } from "@lancer/session-driver/runtime-types";
+import type { CustomProviderApi } from "@lancer/pi-sdk-driver/custom-provider-types";
 import type {
   NavigateSessionTreeOptions,
   NavigateSessionTreeResult,
@@ -70,12 +71,14 @@ export interface CustomProviderModelConfig {
 export interface CustomProviderConfig {
   readonly providerId: string;
   readonly baseUrl: string;
+  readonly api?: CustomProviderApi;
   readonly apiKey?: string;
   readonly models: readonly CustomProviderModelConfig[];
 }
 
 export interface CustomProviderProbeInput {
   readonly baseUrl: string;
+  readonly api?: CustomProviderApi;
   readonly apiKey?: string;
 }
 
