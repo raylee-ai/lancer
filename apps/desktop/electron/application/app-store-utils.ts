@@ -203,6 +203,7 @@ function buildSessionRecord(
           },
         }
       : {}),
+    ...(session.worktreePath ? { executionCwd: session.worktreePath } : {}),
   };
 }
 

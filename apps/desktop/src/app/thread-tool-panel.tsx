@@ -91,6 +91,7 @@ export function ThreadToolPanel({
         key={key}
         workspace={workspace}
         sessionId={session.id}
+        executionCwd={session.executionCwd ?? workspace.path}
         onHide={() => workbench.closeTool("terminal")}
       />
     ),

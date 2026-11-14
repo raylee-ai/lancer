@@ -26,6 +26,7 @@ import type {
 import {
   SessionSupervisor,
   type PiSdkDriverOptions,
+  type SessionWorktreeOperation,
   type SyncWorkspaceResult,
 } from "./session-supervisor.js";
 import { RuntimeSupervisor, type RuntimeSupervisorOptions } from "./runtime-supervisor.js";
@@ -60,6 +61,10 @@ export class PiSdkDriver implements SessionDriver {
 
   retargetExecutionCwd(sessionRef: SessionRef): Promise<void> {
     return this.supervisor.retargetExecutionCwd(sessionRef);
+  }
+
+  beginWorktreeOperation(sessionRef: SessionRef, operation: SessionWorktreeOperation): () => void {
+    return this.supervisor.beginWorktreeOperation(sessionRef, operation);
   }
 
   validateForkSession(sourceRef: SessionRef, options: ForkSessionOptions): Promise<void> {

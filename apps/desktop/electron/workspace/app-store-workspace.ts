@@ -37,6 +37,7 @@ export interface WorkspaceStateView {
 type WorkspaceDriver = Pick<
   PiSdkDriver,
   | "archiveSession"
+  | "beginWorktreeOperation"
   | "createSession"
   | "retargetExecutionCwd"
   | "forkSession"

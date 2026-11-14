@@ -17,7 +17,11 @@ export {
   OPENAI_COMPLETIONS_API,
   RuntimeSupervisor,
 } from "./runtime-supervisor.js";
-export type { PiSdkDriverOptions, SyncWorkspaceResult } from "./session-supervisor.js";
+export type {
+  PiSdkDriverOptions,
+  SessionWorktreeOperation,
+  SyncWorkspaceResult,
+} from "./session-supervisor.js";
 export { SessionSupervisor } from "./session-supervisor.js";
 export { SessionLeasedError } from "./session-lease.js";
 export type { LeaseInfo } from "./session-lease.js";

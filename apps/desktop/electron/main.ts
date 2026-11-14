@@ -83,7 +83,11 @@ import {
 import { ThemeManager } from "./platform/theme-manager";
 import { windowBackgroundFor } from "../contracts/theme";
 import { TerminalService } from "./platform/terminal-service";
-import type { DesktopAppState, DesktopAppViewState } from "../contracts/desktop-state";
+import type {
+  DesktopAppState,
+  DesktopAppViewState,
+  WorkspaceSessionTarget,
+} from "../contracts/desktop-state";
 import {
   desktopCommands,
   desktopIpc,
@@ -320,6 +324,8 @@ function getTerminalService(): TerminalService {
   if (!terminalService) {
     terminalService = new TerminalService({
       getWorkspacePath: (workspaceId) => store.getWorkspacePath(workspaceId),
+      getExecutionCwd: (workspaceId, sessionId) =>
+        store.getSessionExecutionCwd(workspaceId, sessionId),
       getIntegratedTerminalShell: () => integratedTerminalShell,
       isPackaged: app.isPackaged,
     });
@@ -1229,6 +1235,12 @@ app
             runScheduledTaskRuntimeToolForTest(scheduledTaskRuntimeBridge, input),
           fireDueScheduledTasks: (nowIso?: string) =>
             store.fireDueScheduledTasks(nowIso ? new Date(nowIso) : undefined),
+          // These call the store directly so a test can overlap them with a prompt
+          // that is already holding the window action queue.
+          mergeSessionWorktree: (target: WorkspaceSessionTarget) =>
+            store.mergeSessionWorktree(target),
+          discardSessionWorktree: (target: WorkspaceSessionTarget) =>
+            store.discardSessionWorktree(target),
           setDeferredThreadTitleMode: () => {
             generateThreadTitleOverride = () =>
               new Promise<string | null>((resolve, reject) => {

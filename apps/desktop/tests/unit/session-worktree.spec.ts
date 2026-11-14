@@ -11,7 +11,12 @@ import {
   readSessionWorktreeDiff,
   removeSessionWorktree,
   sessionBranchName,
+  worktreeListShowsLocked,
 } from "../../electron/platform/worktrees/session-worktree";
+import {
+  reserveWorktreeExecution,
+  reserveWorktreeMutation,
+} from "../../electron/platform/worktrees/session-worktree-lease";
 
 const execFileAsync = promisify(execFile);
 
@@ -98,6 +103,77 @@ test("a merge conflict restores the workspace checkout", async () => {
   expect(await git(repo, "rev-parse", "HEAD")).toBe(before);
   expect(await git(repo, "status", "--porcelain")).toBe("");
   expect(await readFile(join(repo, "shared.txt"), "utf8")).toBe("main\n");
+});
+
+test("a failed merge restores the branch the workspace was on", async () => {
+  const repo = await makeRepo();
+  const binding = await createSessionWorktree(repo, "restore-branch");
+  assertExists(binding);
+  await writeFile(join(repo, "shared.txt"), "main\n");
+  await git(repo, "add", "shared.txt");
+  await git(repo, "commit", "-qm", "main edit");
+  await git(repo, "checkout", "-q", "-b", "side");
+  await writeFile(join(repo, "side-only.txt"), "side\n");
+  await git(repo, "add", "side-only.txt");
+  await git(repo, "commit", "-qm", "side edit");
+  await writeFile(join(binding.path, "shared.txt"), "session\n");
+  const side = await git(repo, "rev-parse", "HEAD");
+
+  await expect(mergeSessionWorktree(binding)).rejects.toThrow(/failed/);
+
+  expect(await git(repo, "branch", "--show-current")).toBe("side");
+  expect(await git(repo, "rev-parse", "HEAD")).toBe(side);
+  expect(await readFile(join(repo, "shared.txt"), "utf8")).toBe("main\n");
+  expect(await readFile(join(repo, "side-only.txt"), "utf8")).toBe("side\n");
+  expect(await git(repo, "status", "--porcelain")).toBe("");
+  expect(await readFile(join(binding.path, "shared.txt"), "utf8")).toBe("session\n");
+});
+
+test("a dirty workspace on another branch is not checked out", async () => {
+  const repo = await makeRepo();
+  const binding = await createSessionWorktree(repo, "stay-put");
+  assertExists(binding);
+  await git(repo, "checkout", "-q", "-b", "side");
+  await writeFile(join(repo, "dirty.txt"), "dirty\n");
+  await writeFile(join(binding.path, "landed.txt"), "landed\n");
+
+  await expect(mergeSessionWorktree(binding)).rejects.toThrow(/uncommitted changes/);
+
+  expect(await git(repo, "branch", "--show-current")).toBe("side");
+  expect(await readFile(join(repo, "dirty.txt"), "utf8")).toBe("dirty\n");
+  expect(await git(repo, "log", "-1", "--format=%s")).toBe("seed");
+  await expect(readFile(join(repo, "landed.txt"), "utf8")).rejects.toThrow();
+});
+
+test("discard refuses a locked worktree instead of forcing it", async () => {
+  const repo = await makeRepo();
+  const binding = await createSessionWorktree(repo, "locked");
+  assertExists(binding);
+  await git(repo, "worktree", "lock", binding.path);
+  const listed = await git(repo, "worktree", "list", "--porcelain");
+  expect(worktreeListShowsLocked(listed, binding.path)).toBe(true);
+
+  await expect(removeSessionWorktree(binding)).rejects.toThrow(/locked/);
+
+  expect(await readFile(join(binding.path, "seed.txt"), "utf8")).toBe("seed\n");
+  expect(await git(repo, "branch", "--list", "lancer/locked")).toContain("lancer/locked");
+  expect(await git(repo, "status", "--porcelain")).toBe("");
+});
+
+test("worktree leases exclude merge from a checkout that is still being claimed", () => {
+  const path = join(tmpdir(), `lancer-lease-${Date.now()}`);
+  const releaseExecution = reserveWorktreeExecution(path);
+  const shared = reserveWorktreeExecution(path);
+  expect(() => reserveWorktreeMutation(path)).toThrow(/still starting/);
+  releaseExecution();
+  expect(() => reserveWorktreeMutation(path)).toThrow(/still starting/);
+  shared();
+  const releaseMutation = reserveWorktreeMutation(path);
+  expect(() => reserveWorktreeExecution(path)).toThrow(/merged or discarded/);
+  expect(() => reserveWorktreeMutation(path)).toThrow(/already/);
+  releaseMutation();
+  const released = reserveWorktreeMutation(path);
+  released();
 });
 
 test("discard removes the worktree and its branch", async () => {

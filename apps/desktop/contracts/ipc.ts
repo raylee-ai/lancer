@@ -401,6 +401,8 @@ export interface TerminalSessionSnapshot {
 export interface TerminalPanelSnapshot {
   readonly workspaceId: string;
   readonly rootKey: string;
+  /** Directory a new terminal for this session starts in. */
+  readonly executionCwd: string;
   readonly activeSessionId: string;
   readonly sessions: readonly TerminalSessionSnapshot[];
 }
