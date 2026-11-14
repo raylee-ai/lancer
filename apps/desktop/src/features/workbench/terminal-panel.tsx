@@ -20,10 +20,12 @@ import { t } from "../../../contracts/i18n";
 interface TerminalPanelProps {
   readonly workspace: WorkspaceRecord;
   readonly sessionId: string;
+  /** Current session directory. Changing it refreshes the panel without stopping shells. */
+  readonly executionCwd: string;
   readonly onHide: () => void;
 }
 
-export function TerminalPanel({ workspace, sessionId, onHide }: TerminalPanelProps) {
+export function TerminalPanel({ workspace, sessionId, executionCwd, onHide }: TerminalPanelProps) {
   const api = window.piApp;
   const panelRef = useRef<HTMLElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -73,6 +75,12 @@ export function TerminalPanel({ workspace, sessionId, onHide }: TerminalPanelPro
       setError(error instanceof Error ? error.message : String(error));
     });
   }, [requestPanel]);
+
+  useEffect(() => {
+    void requestPanel().catch((error: unknown) => {
+      setError(error instanceof Error ? error.message : String(error));
+    });
+  }, [executionCwd, requestPanel]);
 
   const createTerminal = useCallback(async () => {
     if (!api) {
@@ -324,79 +332,104 @@ export function TerminalPanel({ workspace, sessionId, onHide }: TerminalPanelPro
       className="terminal-panel"
       data-pi-terminal="true"
       data-testid="integrated-terminal"
+      data-execution-cwd={panel?.executionCwd ?? executionCwd}
     >
       <div className="terminal-panel__toolbar">
-        <div
-          className="terminal-panel__tabs"
-          role="tablist"
-          aria-label={t("workbench.terminal.sessions")}
-        >
-          {(panel?.sessions ?? []).map((session) => (
-            <div
-              key={session.id}
-              className={`terminal-panel__tab-item${session.id === panel?.activeSessionId ? " terminal-panel__tab-item--active" : ""}`}
+        <div className="terminal-panel__toolbar-row">
+          <div
+            className="terminal-panel__tabs"
+            role="tablist"
+            aria-label={t("workbench.terminal.sessions")}
+          >
+            {(panel?.sessions ?? []).map((session) => (
+              <div
+                key={session.id}
+                className={`terminal-panel__tab-item${session.id === panel?.activeSessionId ? " terminal-panel__tab-item--active" : ""}`}
+              >
+                <button
+                  className="terminal-panel__tab"
+                  type="button"
+                  role="tab"
+                  aria-selected={session.id === panel?.activeSessionId}
+                  data-testid="terminal-tab"
+                  onClick={() =>
+                    void setActiveTerminal(session.id).catch((error: unknown) => {
+                      setError(error instanceof Error ? error.message : String(error));
+                    })
+                  }
+                >
+                  <span
+                    className={`terminal-panel__status terminal-panel__status--${session.status}`}
+                  />
+                  <span className="terminal-panel__tab-title">{session.title}</span>
+                </button>
+                <button
+                  type="button"
+                  className="terminal-panel__tab-close"
+                  aria-label={t("workbench.closeNamed", { name: session.title })}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void closeTerminal(session.id).catch((error: unknown) => {
+                      setError(error instanceof Error ? error.message : String(error));
+                    });
+                  }}
+                >
+                  <CloseIcon />
+                </button>
+              </div>
+            ))}
+          </div>
+          <div className="terminal-panel__actions">
+            <button
+              type="button"
+              className="icon-button terminal-panel__action"
+              title={t("workbench.terminal.new")}
+              aria-label={t("workbench.terminal.new")}
+              onClick={() =>
+                void createTerminal().catch((error: unknown) => {
+                  setError(error instanceof Error ? error.message : String(error));
+                })
+              }
             >
-              <button
-                className="terminal-panel__tab"
-                type="button"
-                role="tab"
-                aria-selected={session.id === panel?.activeSessionId}
-                data-testid="terminal-tab"
-                onClick={() =>
-                  void setActiveTerminal(session.id).catch((error: unknown) => {
-                    setError(error instanceof Error ? error.message : String(error));
-                  })
-                }
-              >
-                <span
-                  className={`terminal-panel__status terminal-panel__status--${session.status}`}
-                />
-                <span className="terminal-panel__tab-title">{session.title}</span>
-              </button>
-              <button
-                type="button"
-                className="terminal-panel__tab-close"
-                aria-label={t("workbench.closeNamed", { name: session.title })}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  void closeTerminal(session.id).catch((error: unknown) => {
-                    setError(error instanceof Error ? error.message : String(error));
-                  });
-                }}
-              >
-                <CloseIcon />
-              </button>
-            </div>
-          ))}
+              <PlusIcon />
+            </button>
+            <button
+              type="button"
+              className="icon-button terminal-panel__action"
+              title={t("workbench.terminal.restart")}
+              aria-label={t("workbench.terminal.restart")}
+              onClick={() =>
+                void restartTerminal().catch((error: unknown) => {
+                  setError(error instanceof Error ? error.message : String(error));
+                })
+              }
+            >
+              <RefreshIcon />
+            </button>
+          </div>
         </div>
-        <div className="terminal-panel__actions">
-          <button
-            type="button"
-            className="icon-button terminal-panel__action"
-            title={t("workbench.terminal.new")}
-            aria-label={t("workbench.terminal.new")}
-            onClick={() =>
-              void createTerminal().catch((error: unknown) => {
-                setError(error instanceof Error ? error.message : String(error));
-              })
-            }
+        {activeSession ? (
+          <p
+            className="terminal-panel__cwd"
+            data-testid="terminal-cwd"
+            data-cwd={activeSession.cwd}
+            title={activeSession.cwd}
           >
-            <PlusIcon />
-          </button>
-          <button
-            type="button"
-            className="icon-button terminal-panel__action"
-            title={t("workbench.terminal.restart")}
-            aria-label={t("workbench.terminal.restart")}
-            onClick={() =>
-              void restartTerminal().catch((error: unknown) => {
-                setError(error instanceof Error ? error.message : String(error));
-              })
-            }
+            {activeSession.cwd}
+          </p>
+        ) : null}
+        {activeSession && panel?.executionCwd && activeSession.cwd !== panel.executionCwd ? (
+          <p
+            className="terminal-panel__cwd-notice"
+            data-testid="terminal-cwd-mismatch"
+            role="status"
           >
-            <RefreshIcon />
-          </button>
-        </div>
+            {t("workbench.terminal.cwdMismatch", {
+              cwd: activeSession.cwd,
+              next: panel.executionCwd,
+            })}
+          </p>
+        ) : null}
       </div>
       {error ? (
         <div className="terminal-panel__error">{error}</div>

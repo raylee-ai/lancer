@@ -2,6 +2,7 @@ import { delegatedTaskPrompt } from "./branch-return-batch";
 import { TaskAdmission } from "./task-limits";
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
+import { stat } from "node:fs/promises";
 import { promisify } from "node:util";
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { sessionKey } from "@lancer/session-driver";
@@ -70,7 +71,10 @@ interface OrchestrationStateView {
   readonly orchestrationChildren: readonly OrchestrationChildThread[];
 }
 
-type OrchestrationDriver = Pick<PiSdkDriver, "cancelCurrentRun" | "createSession">;
+type OrchestrationDriver = Pick<
+  PiSdkDriver,
+  "cancelCurrentRun" | "createSession" | "retargetExecutionCwd"
+>;
 
 interface OrchestrationOwnerHost {
   assertRunAllowed?(sessionRef: SessionRef): void;
@@ -100,6 +104,11 @@ interface OrchestrationOwnerHost {
   ): () => void;
   updateSessionConfig(sessionRef: SessionRef, config: SessionConfig | undefined): void;
   buildCreateSessionOptions(workspaceId: string): Promise<CreateSessionOptions | undefined>;
+  prepareInheritedExecution(parentRef: SessionRef): Promise<{
+    readonly path?: string;
+    readonly release: () => void;
+  }>;
+  adoptInheritedExecution(childRef: SessionRef, path: string): Promise<void>;
   getQueuedComposerMessages(
     sessionRef: SessionRef,
   ): readonly import("../../contracts/desktop-state").QueuedComposerMessage[];
@@ -234,6 +243,7 @@ async function createChildThreadRecord(
     pendingCreateChildThreadToolCalls.add(pendingKey);
   }
   let releaseAdmission: (() => void) | undefined;
+  let releaseInheritedExecution: (() => void) | undefined;
   try {
     store.assertRunAllowed?.({
       workspaceId: input.parentWorkspaceId,
@@ -245,9 +255,31 @@ async function createChildThreadRecord(
       workspaceId: input.parentWorkspaceId,
       sessionId: input.parentSessionId,
     });
+    const inherited = await store.prepareInheritedExecution({
+      workspaceId: input.parentWorkspaceId,
+      sessionId: input.parentSessionId,
+    });
+    releaseInheritedExecution = inherited.release;
+    const inheritedPath = inherited.path;
     const createOptions = await store.buildCreateSessionOptions(input.parentWorkspaceId);
+    let inheritedCwd: string | undefined;
     const session = await store.driver.createSession(workspace, {
       ...createOptions,
+      ...(inheritedPath
+        ? {
+            resolveExecutionCwd: async () => {
+              try {
+                if ((await stat(inheritedPath)).isDirectory()) {
+                  inheritedCwd = inheritedPath;
+                  return inheritedPath;
+                }
+              } catch {
+                // The parent checkout disappeared before the runtime started.
+              }
+              return undefined;
+            },
+          }
+        : {}),
       ...(parent.config?.provider && parent.config.modelId
         ? { initialModel: { provider: parent.config.provider, modelId: parent.config.modelId } }
         : {}),
@@ -258,6 +290,14 @@ async function createChildThreadRecord(
     });
     const childRef = session.ref;
     store.seedSession(session);
+    if (inheritedCwd) {
+      try {
+        await store.adoptInheritedExecution(childRef, inheritedCwd);
+      } catch (error) {
+        await store.driver.retargetExecutionCwd(childRef).catch(() => undefined);
+        throw error;
+      }
+    }
     await store.ensureSessionSubscription(childRef);
 
     const now = new Date().toISOString();
@@ -334,6 +374,7 @@ async function createChildThreadRecord(
       deliveryStatus,
     };
   } finally {
+    releaseInheritedExecution?.();
     releaseAdmission?.();
     if (pendingKey) {
       pendingCreateChildThreadToolCalls.delete(pendingKey);

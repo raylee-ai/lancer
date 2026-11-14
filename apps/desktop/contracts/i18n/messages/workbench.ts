@@ -122,6 +122,8 @@ export const workbenchMessages = defineMessages(
     "workbench.terminal.sessions": "Terminal sessions",
     "workbench.terminal.new": "New terminal",
     "workbench.terminal.restart": "Restart terminal",
+    "workbench.terminal.cwdMismatch":
+      "This shell is still in {cwd}. The session directory is now {next}. New terminals and Restart use the session directory. This shell keeps running.",
 
     "workbench.relative.now": "now",
     "workbench.relative.minutes": "{count}m",
@@ -249,6 +251,8 @@ export const workbenchMessages = defineMessages(
     "workbench.terminal.sessions": "终端会话",
     "workbench.terminal.new": "新建终端",
     "workbench.terminal.restart": "重启终端",
+    "workbench.terminal.cwdMismatch":
+      "这个 shell 仍在 {cwd}。会话目录现在是 {next}。新建终端和重启会改用会话目录。这个 shell 会继续运行。",
 
     "workbench.relative.now": "刚刚",
     "workbench.relative.minutes": "{count} 分钟",

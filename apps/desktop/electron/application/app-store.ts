@@ -144,6 +144,7 @@ import {
 import { appWorktreeRootMatcher } from "../platform/worktrees/app-worktree-roots";
 import { GitWorktreeManager } from "../platform/worktrees/worktree-manager";
 import { createWorkspaceOwner, type WorkspaceOwner } from "../workspace/app-store-workspace";
+import { prepareInheritedExecutionDirectory } from "../workspace/session-worktree-sessions";
 import {
   createConversationOwner,
   type ConversationOwner,
@@ -518,6 +519,10 @@ export class DesktopAppStore {
       subscribeToSessionEvents: (listener) => this.subscribeToSessionEvents(listener),
       updateSessionConfig: (sessionRef, config) => this.updateSessionConfig(sessionRef, config),
       buildCreateSessionOptions: (workspaceId) => this.buildCreateSessionOptions(workspaceId),
+      prepareInheritedExecution: (parentRef) =>
+        prepareInheritedExecutionDirectory(this.catalogStore, parentRef),
+      adoptInheritedExecution: (childRef, path) =>
+        this.catalogStore.sessions.updateControlMetadata(childRef, { worktreePath: path }),
       getQueuedComposerMessages: (sessionRef) => this.getQueuedComposerMessages(sessionRef),
       seedSession: (snapshot) => {
         const key = sessionKey(snapshot.ref);
@@ -899,6 +904,27 @@ export class DesktopAppStore {
 
   getWorkspacePath(workspaceId: string): string | undefined {
     return this.state.workspaces.find((w) => w.id === workspaceId)?.path;
+  }
+
+  /** Directory the session's agent and new integrated terminals should use. */
+  async getSessionExecutionCwd(
+    workspaceId: string,
+    sessionId: string,
+  ): Promise<string | undefined> {
+    const workspacePath = this.getWorkspacePath(workspaceId);
+    if (!workspacePath) return undefined;
+    const metadata = await this.catalogStore.sessions.getControlMetadata({
+      workspaceId,
+      sessionId,
+    });
+    const candidate = metadata?.worktreePath?.trim();
+    if (!candidate) return workspacePath;
+    try {
+      if ((await stat(candidate)).isDirectory()) return candidate;
+    } catch {
+      // A discarded or missing checkout falls back to the workspace directory.
+    }
+    return workspacePath;
   }
 
   getSkillFilePath(workspaceId: string, filePath: string): string | undefined {

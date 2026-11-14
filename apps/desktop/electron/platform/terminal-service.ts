@@ -27,7 +27,8 @@ interface TerminalRoot {
   readonly workspaceRootKey: string;
   readonly workspaceId: string;
   readonly terminalScopeId: string;
-  readonly cwd: string;
+  /** Directory a new or restarted terminal in this session should start in. */
+  executionCwd: string;
   activeSessionId: string | undefined;
   readonly sessionIds: string[];
 }
@@ -37,7 +38,7 @@ interface TerminalSession {
   readonly workspaceId: string;
   readonly terminalScopeId: string;
   readonly rootKey: string;
-  readonly cwd: string;
+  cwd: string;
   readonly ownerWebContentsId: number;
   shell: string;
   title: string;
@@ -54,6 +55,15 @@ interface TerminalSession {
 
 export interface TerminalServiceOptions {
   readonly getWorkspacePath: (workspaceId: string) => string | undefined;
+  /**
+   * Directory the session is executing in. When it is missing or not a
+   * directory, new terminals fall back to the workspace root. Existing
+   * terminal processes keep the directory they already started in.
+   */
+  readonly getExecutionCwd?: (
+    workspaceId: string,
+    terminalScopeId: string,
+  ) => Promise<string | undefined>;
   readonly getIntegratedTerminalShell: () => string | undefined;
   readonly isPackaged: boolean;
 }
@@ -65,34 +75,36 @@ export class TerminalService {
 
   constructor(private readonly options: TerminalServiceOptions) {}
 
-  ensurePanel(
+  async ensurePanel(
     webContents: WebContents,
     workspaceId: string,
     terminalScopeId: string,
     size?: Partial<TerminalSize>,
-  ): TerminalPanelSnapshot {
+  ): Promise<TerminalPanelSnapshot> {
     const root = this.ensureRoot(webContents, workspaceId, terminalScopeId);
+    root.executionCwd = await this.resolveExecutionCwd(workspaceId, terminalScopeId);
     if (!root.activeSessionId || root.sessionIds.length === 0) {
-      const session = this.createSessionForRoot(webContents, root, size);
+      const session = this.createSessionForRoot(webContents, root, root.executionCwd, size);
       root.sessionIds.push(session.id);
       root.activeSessionId = session.id;
     }
     return this.snapshotRoot(root);
   }
 
-  createSession(
+  async createSession(
     webContents: WebContents,
     workspaceId: string,
     terminalScopeId: string,
     size?: Partial<TerminalSize>,
-  ): TerminalPanelSnapshot {
+  ): Promise<TerminalPanelSnapshot> {
     const root = this.ensureRoot(webContents, workspaceId, terminalScopeId);
+    root.executionCwd = await this.resolveExecutionCwd(workspaceId, terminalScopeId);
     if (root.sessionIds.length >= MAX_TERMINAL_SESSIONS_PER_ROOT) {
       throw new Error(
         `A workspace can have up to ${MAX_TERMINAL_SESSIONS_PER_ROOT} terminal tabs.`,
       );
     }
-    const session = this.createSessionForRoot(webContents, root, size);
+    const session = this.createSessionForRoot(webContents, root, root.executionCwd, size);
     root.sessionIds.push(session.id);
     root.activeSessionId = session.id;
     return this.snapshotRoot(root);
@@ -148,13 +160,17 @@ export class TerminalService {
     session.pty?.resize(normalizedSize.cols, normalizedSize.rows);
   }
 
-  restart(
+  async restart(
     webContents: WebContents,
     terminalId: string,
     size?: Partial<TerminalSize>,
-  ): TerminalPanelSnapshot {
+  ): Promise<TerminalPanelSnapshot> {
     const session = this.requireOwnedSession(webContents, terminalId);
+    const root = this.requireRoot(session.rootKey);
+    const cwd = await this.resolveExecutionCwd(session.workspaceId, session.terminalScopeId);
+    root.executionCwd = cwd;
     this.disposePty(session);
+    session.cwd = cwd;
     session.shell = this.resolveShell();
     session.title = this.defaultTitle(session);
     session.status = "running";
@@ -164,7 +180,7 @@ export class TerminalService {
     session.signal = undefined;
     session.size = normalizeSize(size ?? session.size);
     this.spawnPty(webContents, session);
-    return this.snapshotRoot(this.requireRoot(session.rootKey));
+    return this.snapshotRoot(root);
   }
 
   close(webContents: WebContents, terminalId: string): TerminalPanelSnapshot | null {
@@ -263,7 +279,7 @@ export class TerminalService {
       workspaceRootKey,
       workspaceId,
       terminalScopeId: normalizedScopeId,
-      cwd: workspaceRootKey,
+      executionCwd: workspaceRootKey,
       activeSessionId: undefined,
       sessionIds: [],
     };
@@ -274,6 +290,7 @@ export class TerminalService {
   private createSessionForRoot(
     webContents: WebContents,
     root: TerminalRoot,
+    cwd: string,
     size?: Partial<TerminalSize>,
   ): TerminalSession {
     const session: TerminalSession = {
@@ -281,7 +298,7 @@ export class TerminalService {
       workspaceId: root.workspaceId,
       terminalScopeId: root.terminalScopeId,
       rootKey: root.rootKey,
-      cwd: root.cwd,
+      cwd,
       ownerWebContentsId: webContents.id,
       shell: this.resolveShell(),
       title: "",
@@ -396,9 +413,28 @@ export class TerminalService {
     return {
       workspaceId: root.workspaceId,
       rootKey: root.rootKey,
+      executionCwd: root.executionCwd,
       activeSessionId,
       sessions: sessions.map((session) => this.snapshotSession(session)),
     };
+  }
+
+  private async resolveExecutionCwd(workspaceId: string, terminalScopeId: string): Promise<string> {
+    const workspacePath = this.options.getWorkspacePath(workspaceId);
+    if (!workspacePath) {
+      throw new Error(`Unknown workspace: ${workspaceId}`);
+    }
+    ensureDirectory(workspacePath);
+    const fallback = normalizeRootKey(workspacePath);
+    if (!this.options.getExecutionCwd) return fallback;
+    try {
+      const execution = (await this.options.getExecutionCwd(workspaceId, terminalScopeId))?.trim();
+      if (!execution) return fallback;
+      ensureDirectory(execution);
+      return normalizeRootKey(execution);
+    } catch {
+      return fallback;
+    }
   }
 
   private snapshotSession(session: TerminalSession): TerminalSessionSnapshot {

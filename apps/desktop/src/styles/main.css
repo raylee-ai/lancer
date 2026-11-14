@@ -605,12 +605,42 @@
 .terminal-panel__toolbar {
   min-height: 38px;
   display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 5px 8px 6px 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--sidebar);
+}
+
+.terminal-panel__toolbar-row {
+  display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 5px 8px 5px 10px;
-  border-bottom: 1px solid var(--line);
-  background: var(--sidebar);
+  min-width: 0;
+}
+
+.terminal-panel__cwd,
+.terminal-panel__cwd-notice {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font:
+    11px Menlo,
+    Monaco,
+    Consolas,
+    "Liberation Mono",
+    monospace;
+}
+
+.terminal-panel__cwd-notice {
+  white-space: normal;
+  color: var(--text);
+  line-height: 1.4;
 }
 
 .terminal-panel__tabs {

@@ -127,6 +127,12 @@ export interface SessionRecord {
   readonly config?: SessionConfig;
   /** Set when this session's agent runs in its own git worktree. */
   readonly worktree?: SessionWorktreeInfo;
+  /**
+   * Agent and terminal directory when it is not the workspace root. Owned
+   * worktrees set this together with `worktree`. A child of an owned-worktree
+   * session sets this to the parent's checkout and does not own that worktree.
+   */
+  readonly executionCwd?: string;
 }
 
 export type OrchestrationChildThreadStatus =

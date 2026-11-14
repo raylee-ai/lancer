@@ -220,6 +220,8 @@ interface ManagedSessionRecord {
   transcriptDiskMtimeMs: number | undefined;
 }
 
+export type SessionWorktreeOperation = "merge" | "discard";
+
 interface RegisteredCommandAdapter {
   readonly name: string;
   readonly invocationName?: string;
@@ -284,6 +286,10 @@ export class SessionSupervisor {
   /** Latest plan limits a provider reported, shared by every session on that provider. */
   private readonly planLimitsByProvider = new Map<string, SessionPlanLimits>();
   private readonly ensureRecordInFlight = new Map<string, Promise<ManagedSessionRecord>>();
+  /** Merge or discard currently reserved for a session. Checked synchronously with turn starts. */
+  private readonly worktreeOperations = new Map<string, SessionWorktreeOperation>();
+  /** Prompts that have passed the worktree check and not yet finished delivering. */
+  private readonly worktreeTurnCounts = new Map<string, number>();
   /** Preserve invocation order so stale touches cannot undo a later rename or removal. */
   private readonly workspaceMutationQueues = new Map<WorkspaceId, Promise<void>>();
   private readonly leaseIdentity: LeaseIdentity = currentLeaseIdentity();
@@ -953,8 +959,70 @@ export class SessionSupervisor {
     await this.updateArchivedState(sessionRef, undefined);
   }
 
+  /**
+   * Reserve a session so a prompt cannot start, and another merge or discard
+   * cannot start, until the returned function runs. The check and the
+   * reservation are synchronous: a turn that begins claiming in the same turn
+   * of the event loop either wins the reservation or observes it.
+   */
+  beginWorktreeOperation(sessionRef: SessionRef, operation: SessionWorktreeOperation): () => void {
+    const key = sessionKey(sessionRef);
+    if (this.worktreeOperations.has(key)) {
+      throw new Error("This session's worktree is already being merged or discarded.");
+    }
+    const record = this.records.get(key);
+    if (
+      (this.worktreeTurnCounts.get(key) ?? 0) > 0 ||
+      record?.status === "running" ||
+      record?.promptStarting ||
+      record?.session?.isStreaming
+    ) {
+      throw new Error("Stop the session before merging or discarding its worktree.");
+    }
+    this.worktreeOperations.set(key, operation);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      if (this.worktreeOperations.get(key) === operation) {
+        this.worktreeOperations.delete(key);
+      }
+    };
+  }
+
+  private claimWorktreeTurn(record: ManagedSessionRecord): void {
+    const key = sessionKey(record.ref);
+    const operation = this.worktreeOperations.get(key);
+    if (operation === "merge") {
+      throw new Error("Cannot start a turn while this session's worktree is being merged.");
+    }
+    if (operation === "discard") {
+      throw new Error("Cannot start a turn while this session's worktree is being discarded.");
+    }
+    this.worktreeTurnCounts.set(key, (this.worktreeTurnCounts.get(key) ?? 0) + 1);
+  }
+
+  private releaseWorktreeTurn(record: ManagedSessionRecord): void {
+    const key = sessionKey(record.ref);
+    const next = (this.worktreeTurnCounts.get(key) ?? 1) - 1;
+    if (next <= 0) this.worktreeTurnCounts.delete(key);
+    else this.worktreeTurnCounts.set(key, next);
+  }
+
   async sendUserMessage(sessionRef: SessionRef, input: SessionMessageInput): Promise<void> {
     const record = await this.ensureRecord(sessionRef);
+    this.claimWorktreeTurn(record);
+    try {
+      await this.deliverClaimedUserMessage(record, input);
+    } finally {
+      this.releaseWorktreeTurn(record);
+    }
+  }
+
+  private async deliverClaimedUserMessage(
+    record: ManagedSessionRecord,
+    input: SessionMessageInput,
+  ): Promise<void> {
     const session = this.requireSession(record);
     const isExtensionCommand = this.isExtensionCommand(session, input.text);
     if (session.isStreaming && !isExtensionCommand && !input.deliverAs) {
@@ -1071,6 +1139,18 @@ export class SessionSupervisor {
     messages: readonly SessionQueuedMessage[],
   ): Promise<void> {
     const record = await this.ensureRecord(sessionRef);
+    this.claimWorktreeTurn(record);
+    try {
+      await this.replaceQueuedMessagesWhileClaimed(record, messages);
+    } finally {
+      this.releaseWorktreeTurn(record);
+    }
+  }
+
+  private async replaceQueuedMessagesWhileClaimed(
+    record: ManagedSessionRecord,
+    messages: readonly SessionQueuedMessage[],
+  ): Promise<void> {
     const session = this.requireSession(record);
     session.clearQueue();
 

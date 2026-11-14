@@ -213,19 +213,17 @@ export async function readSessionWorktreeDiff(
 /**
  * Commit any session-worktree edits onto its branch, then merge that branch
  * into the branch the workspace was on when the worktree was created.
- * A dirty workspace checkout or a conflict aborts without leaving a merge in progress.
+ * A dirty workspace checkout or a conflict aborts without leaving a merge in
+ * progress. If the workspace was on another branch, a failed merge checks that
+ * branch back out. Checkout never uses `--force`, so user changes are not
+ * overwritten to make the merge fit.
  */
 export async function mergeSessionWorktree(binding: SessionWorktreeBinding): Promise<string> {
   assertSafeBranchName(binding.branch);
   if (binding.baseBranch) assertSafeBranchName(binding.baseBranch);
   assertManagedWorktreePath(binding.commonDir, binding.path);
   return serialize(binding.commonDir, async () => {
-    const workspaceStatus = await runGit(binding.repoRoot, ["status", "--porcelain"]);
-    if (workspaceStatus) {
-      throw new Error(
-        "The workspace checkout has uncommitted changes. Commit or stash them before merging this session.",
-      );
-    }
+    await assertWorkspaceCheckoutClean(binding.repoRoot);
     const worktreeStatus = await runGit(binding.path, ["status", "--porcelain"]);
     if (worktreeStatus) {
       await runGit(binding.path, ["add", "-A"]);
@@ -239,14 +237,26 @@ export async function mergeSessionWorktree(binding: SessionWorktreeBinding): Pro
       );
     }
     assertSafeBranchName(target);
-    const current = await runGit(binding.repoRoot, ["branch", "--show-current"]);
-    if (current !== target) {
-      await runGit(binding.repoRoot, ["checkout", target]);
-    }
+    // Re-read immediately before touching the workspace. The earlier check can
+    // go stale while the session branch is being committed.
+    await assertWorkspaceCheckoutClean(binding.repoRoot);
+    const previousBranch = await runGit(binding.repoRoot, ["branch", "--show-current"]);
+    const previousHead = await runGit(binding.repoRoot, ["rev-parse", "HEAD"]);
+    let switched = false;
     try {
+      if (previousBranch !== target) {
+        await runGit(binding.repoRoot, ["checkout", target]);
+        switched = true;
+      }
       await runGit(binding.repoRoot, ["merge", "--no-edit", binding.branch]);
     } catch (error) {
       await runGit(binding.repoRoot, ["merge", "--abort"]).catch(() => undefined);
+      if (switched) {
+        const restore = previousBranch || previousHead;
+        if (restore) {
+          await runGit(binding.repoRoot, ["checkout", restore]).catch(() => undefined);
+        }
+      }
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(
         `Merge of ${binding.branch} into ${target} failed. The workspace checkout was restored. ${message}`,
@@ -256,6 +266,32 @@ export async function mergeSessionWorktree(binding: SessionWorktreeBinding): Pro
   });
 }
 
+async function assertWorkspaceCheckoutClean(repoRoot: string): Promise<void> {
+  const workspaceStatus = await runGit(repoRoot, ["status", "--porcelain"]);
+  if (workspaceStatus) {
+    throw new Error(
+      "The workspace checkout has uncommitted changes. Commit or stash them before merging this session.",
+    );
+  }
+}
+
+/** True when `git worktree list --porcelain` marks this path as locked. */
+export function worktreeListShowsLocked(porcelain: string, worktreePath: string): boolean {
+  let currentPath = "";
+  let locked = false;
+  const matches = () => currentPath === worktreePath && locked;
+  for (const line of porcelain.split("\n")) {
+    if (line.startsWith("worktree ")) {
+      if (matches()) return true;
+      currentPath = line.slice("worktree ".length);
+      locked = false;
+      continue;
+    }
+    if (line === "locked" || line.startsWith("locked ")) locked = true;
+  }
+  return matches();
+}
+
 export async function removeSessionWorktree(binding: SessionWorktreeBinding): Promise<void> {
   assertSafeBranchName(binding.branch);
   if (!binding.branch.startsWith("lancer/")) {
@@ -263,6 +299,15 @@ export async function removeSessionWorktree(binding: SessionWorktreeBinding): Pr
   }
   assertManagedWorktreePath(binding.commonDir, binding.path);
   await serialize(binding.commonDir, async () => {
+    const listedBefore = await runGit(binding.repoRoot, ["worktree", "list", "--porcelain"]).catch(
+      () => "",
+    );
+    // One `--force` removes an idle dirty checkout. A second `--force` would
+    // also remove a locked worktree, which can still be in use outside this
+    // session. Refuse the locked case instead of escalating.
+    if (worktreeListShowsLocked(listedBefore, binding.path)) {
+      throw new Error("This worktree is locked. Unlock it before discarding.");
+    }
     try {
       await runGit(binding.repoRoot, ["worktree", "remove", "--force", binding.path]);
     } catch (error) {
