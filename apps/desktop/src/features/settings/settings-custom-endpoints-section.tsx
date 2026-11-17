@@ -1,24 +1,32 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   CUSTOM_PROVIDER_ID_PATTERN,
+  CUSTOM_PROVIDER_APIS,
+  isCustomProviderApi,
   isValidHttpBaseUrl,
 } from "@lancer/pi-sdk-driver/custom-provider-types";
-import { t, tPlural } from "../../../contracts/i18n";
+import { getLocale, t, tPlural } from "../../../contracts/i18n";
+import type { CustomProviderPreset } from "../../../contracts/provider-presets";
 import { trapDialogFocus } from "../../ui/dialog-focus";
 import type { CustomProviderConfig, CustomProviderModelConfig } from "../../../contracts/ipc";
 import { SettingsGroup } from "./settings-utils";
+import { SettingsProviderPresetDialog } from "./settings-provider-preset-dialog";
 
 interface SettingsCustomEndpointsSectionProps {
   readonly existingProviderIds: readonly string[];
+  readonly onConfigureNativeProvider: (providerId: string) => void;
   readonly onSaveCustomProvider: (config: CustomProviderConfig) => Promise<string | undefined>;
   readonly onDeleteCustomProvider: (providerId: string) => Promise<string | undefined>;
 }
 
 type DialogMode =
-  { kind: "closed" } | { kind: "create" } | { kind: "edit"; original: CustomProviderConfig };
+  | { kind: "closed" }
+  | { kind: "create"; preset?: CustomProviderPreset }
+  | { kind: "edit"; original: CustomProviderConfig };
 
 export function SettingsCustomEndpointsSection({
   existingProviderIds,
+  onConfigureNativeProvider,
   onSaveCustomProvider,
   onDeleteCustomProvider,
 }: SettingsCustomEndpointsSectionProps) {
@@ -26,6 +34,7 @@ export function SettingsCustomEndpointsSection({
   const [loadError, setLoadError] = useState<string | undefined>();
   const [dialog, setDialog] = useState<DialogMode>({ kind: "closed" });
   const [reloadKey, setReloadKey] = useState(0);
+  const [showPresets, setShowPresets] = useState(false);
 
   useEffect(() => {
     const api = window.piApp;
@@ -130,6 +139,23 @@ export function SettingsCustomEndpointsSection({
         )}
         <div className="settings-row">
           <div className="settings-row__label">
+            <div className="settings-row__title">{t("settings.customEndpoints.templates")}</div>
+            <div className="settings-row__description">
+              {t("settings.customEndpoints.templatesDescription")}
+            </div>
+          </div>
+          <div className="settings-row__control">
+            <button
+              className="button button--secondary"
+              type="button"
+              onClick={() => setShowPresets(true)}
+            >
+              {t("settings.customEndpoints.chooseTemplate")}
+            </button>
+          </div>
+        </div>
+        <div className="settings-row">
+          <div className="settings-row__label">
             <div className="settings-row__title">{t("settings.customEndpoints.addEndpoint")}</div>
             <div className="settings-row__description">
               {t("settings.customEndpoints.addEndpointDescription")}
@@ -142,6 +168,20 @@ export function SettingsCustomEndpointsSection({
           </div>
         </div>
       </SettingsGroup>
+
+      {showPresets ? (
+        <SettingsProviderPresetDialog
+          onClose={() => setShowPresets(false)}
+          onChoose={(preset) => {
+            setShowPresets(false);
+            if (preset.kind === "native") {
+              onConfigureNativeProvider(preset.providerId);
+            } else {
+              setDialog({ kind: "create", preset });
+            }
+          }}
+        />
+      ) : null}
 
       {dialog.kind !== "closed" ? (
         <CustomEndpointDialog
@@ -170,8 +210,12 @@ function CustomEndpointDialog({
 }: CustomEndpointDialogProps) {
   const titleId = useId();
   const initial = mode.kind === "edit" ? mode.original : undefined;
-  const [providerId, setProviderId] = useState(initial?.providerId ?? "");
-  const [baseUrl, setBaseUrl] = useState(initial?.baseUrl ?? "");
+  const preset = mode.kind === "create" ? mode.preset : undefined;
+  const [providerId, setProviderId] = useState(initial?.providerId ?? preset?.providerId ?? "");
+  const [baseUrl, setBaseUrl] = useState(initial?.baseUrl ?? preset?.baseUrl ?? "");
+  const [protocol, setProtocol] = useState(
+    initial ? (initial.api ?? "") : (preset?.api ?? "openai-completions"),
+  );
   const [apiKey, setApiKey] = useState(initial?.apiKey ?? "");
   const [models, setModels] = useState<CustomProviderModelConfig[]>(
     initial ? [...initial.models] : [],
@@ -220,6 +264,7 @@ function CustomEndpointDialog({
     setProbeError(undefined);
     const result = await api.probeCustomProviderModels({
       baseUrl: baseUrl.trim(),
+      ...(isCustomProviderApi(protocol) ? { api: protocol } : {}),
       apiKey: apiKey.trim() ? apiKey.trim() : undefined,
     });
     setProbePending(false);
@@ -270,6 +315,7 @@ function CustomEndpointDialog({
     const error = await onSave({
       providerId: providerId.trim(),
       baseUrl: baseUrl.trim(),
+      ...(isCustomProviderApi(protocol) ? { api: protocol } : {}),
       ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
       models,
     });
@@ -315,6 +361,12 @@ function CustomEndpointDialog({
               path: "~/.pi/agent/models.json",
             })}
           </p>
+          {preset ? (
+            <p className="settings-row__description">
+              <strong>{preset.name[getLocale()]}</strong>{" "}
+              {preset.modelHint?.[getLocale()] ?? preset.description[getLocale()]}
+            </p>
+          ) : null}
           <label className="settings-field">
             <span>{t("settings.customEndpoints.providerId")}</span>
             <input
@@ -337,21 +389,60 @@ function CustomEndpointDialog({
             )}
           </label>
           <label className="settings-field">
+            <span>{t("settings.customEndpoints.protocol")}</span>
+            <select
+              aria-label={t("settings.customEndpoints.protocol")}
+              className="settings-search"
+              disabled={savePending || probePending}
+              value={protocol}
+              onChange={(event) => {
+                setProtocol(event.target.value);
+                setProbeCandidates([]);
+                setProbeError(undefined);
+              }}
+            >
+              {initial && !initial.api ? (
+                <option value="">{t("settings.customEndpoints.keepProtocol")}</option>
+              ) : null}
+              {CUSTOM_PROVIDER_APIS.map((api) => (
+                <option key={api} value={api}>
+                  {api}
+                </option>
+              ))}
+            </select>
+            {isEdit ? (
+              <span className="settings-row__description">
+                {t("settings.customEndpoints.preserveAdvanced")}
+              </span>
+            ) : null}
+          </label>
+          <label className="settings-field">
             <span>{t("settings.customEndpoints.baseUrl")}</span>
             <input
               aria-label={t("settings.customEndpoints.baseUrl")}
               className="settings-search"
-              disabled={savePending}
+              disabled={savePending || probePending}
               placeholder="http://localhost:11434/v1"
               value={baseUrl}
-              onChange={(event) => setBaseUrl(event.target.value)}
+              onChange={(event) => {
+                setBaseUrl(event.target.value);
+                setProbeCandidates([]);
+                setProbeError(undefined);
+              }}
             />
             <span className="settings-row__description">
-              {withCode(t("settings.customEndpoints.baseUrlHelp"), {
-                suffix: "/v1",
-                ollama: "http://localhost:11434/v1",
-                vllm: "http://localhost:8000/v1",
-              })}
+              {withCode(
+                t(
+                  protocol === "anthropic-messages"
+                    ? "settings.customEndpoints.anthropicBaseUrlHelp"
+                    : "settings.customEndpoints.baseUrlHelp",
+                ),
+                {
+                  suffix: "/v1",
+                  ollama: "http://localhost:11434/v1",
+                  vllm: "http://localhost:8000/v1",
+                },
+              )}
             </span>
           </label>
           <label className="settings-field">
@@ -359,11 +450,15 @@ function CustomEndpointDialog({
             <input
               aria-label={t("settings.customEndpoints.apiKey")}
               className="settings-search"
-              disabled={savePending}
+              disabled={savePending || probePending}
               placeholder={t("settings.customEndpoints.apiKeyPlaceholder")}
               type="password"
               value={apiKey}
-              onChange={(event) => setApiKey(event.target.value)}
+              onChange={(event) => {
+                setApiKey(event.target.value);
+                setProbeCandidates([]);
+                setProbeError(undefined);
+              }}
             />
             <span className="settings-row__description">
               {withCode(t("settings.customEndpoints.apiKeyHelp"), { flag: "--api-key" })}
@@ -375,7 +470,7 @@ function CustomEndpointDialog({
               <span>{t("settings.customEndpoints.models")}</span>
               <button
                 className="button button--secondary"
-                disabled={probePending || savePending}
+                disabled={probePending || savePending || !protocol}
                 ref={probeButtonRef}
                 type="button"
                 onClick={() =>

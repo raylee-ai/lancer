@@ -2,6 +2,10 @@ import type { HostUiResponse } from "@lancer/session-driver";
 import type { NavigateSessionTreeOptions } from "@lancer/session-driver/types";
 import type { RuntimeSettingsSnapshot } from "@lancer/session-driver/runtime-types";
 import {
+  isCustomProviderApi,
+  type CustomProviderApi,
+} from "@lancer/pi-sdk-driver/custom-provider-types";
+import {
   isLanguagePreference,
   type LanguagePreference,
   isThemeMode,
@@ -320,14 +324,27 @@ export function expectNotificationPreferences(value: unknown): Partial<Notificat
   return preferences;
 }
 
+function expectOptionalCustomProviderApi(
+  value: unknown,
+  name: string,
+): CustomProviderApi | undefined {
+  if (value === undefined) return undefined;
+  if (!isCustomProviderApi(value)) {
+    throw new TypeError(`${name} must be a supported custom provider API`);
+  }
+  return value;
+}
+
 export function expectCustomProviderConfig(value: unknown): CustomProviderConfig {
   const record = expectRecord(value, "config");
   if (!Array.isArray(record.models)) {
     throw new TypeError("config.models must be an array");
   }
+  const api = expectOptionalCustomProviderApi(record.api, "config.api");
   return {
     providerId: expectNonEmptyString(record.providerId, "config.providerId"),
     baseUrl: expectNonEmptyString(record.baseUrl, "config.baseUrl"),
+    ...(api !== undefined ? { api } : {}),
     apiKey: expectOptionalString(record.apiKey, "config.apiKey"),
     models: record.models.map((model, index) => {
       const entry = expectRecord(model, `config.models[${index}]`);
@@ -350,8 +367,10 @@ export function expectCustomProviderConfig(value: unknown): CustomProviderConfig
 
 export function expectCustomProviderProbeInput(value: unknown): CustomProviderProbeInput {
   const record = expectRecord(value, "input");
+  const api = expectOptionalCustomProviderApi(record.api, "input.api");
   return {
     baseUrl: expectNonEmptyString(record.baseUrl, "input.baseUrl"),
+    ...(api !== undefined ? { api } : {}),
     apiKey: expectOptionalString(record.apiKey, "input.apiKey"),
   };
 }

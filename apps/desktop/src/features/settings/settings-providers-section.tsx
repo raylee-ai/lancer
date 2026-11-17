@@ -212,6 +212,7 @@ export function SettingsProvidersSection({
 
       <SettingsCustomEndpointsSection
         existingProviderIds={existingProviderIds}
+        onConfigureNativeProvider={setApiKeyProviderId}
         onSaveCustomProvider={onSaveCustomProvider}
         onDeleteCustomProvider={onDeleteCustomProvider}
       />
